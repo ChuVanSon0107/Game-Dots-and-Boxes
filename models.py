@@ -1,5 +1,5 @@
 class GameState:
-    def __init__(self, rows, cols, h_edges, v_edges, boxes, edges_count, current_player, score_player1, score_player2, moves_remaining):
+    def __init__(self, rows, cols, h_edges, v_edges, boxes, edges_count, current_player, score_player1, score_player2, moves_remaining, last_move=None):
         self.rows = rows
         self.cols = cols
         self.h_edges = h_edges
@@ -10,6 +10,7 @@ class GameState:
         self.score_player1 = score_player1
         self.score_player2 = score_player2
         self.moves_remaining = moves_remaining
+        self.last_move = last_move if last_move is not None else []
 
 
 class Move:
@@ -73,7 +74,8 @@ def create_initial_state(rows: int, columns: int):
         current_player=1,
         score_player1=0,
         score_player2=0,
-        moves_remaining=total_edges
+        moves_remaining=total_edges,
+        last_move=[]
     )
     
 
