@@ -12,14 +12,12 @@ def is_valid_move(state: GameState, move: Move):
     if move.edge_type == 'H':
         if not (0 <= move.r <= state.rows and 0 <= move.c < state.cols):
             return False
-    
         return not state.h_edges[move.r][move.c]
     
     # cạnh dọc
     else:
         if not (0 <= move.r < state.rows and 0 <= move.c <= state.cols):
             return False
-    
         return not state.v_edges[move.r][move.c]
     
 
@@ -136,4 +134,22 @@ def undo_move(state: GameState, move: Move, undo_info: dict):
     # 6. Lấy nước đi ra khỏi lịch sử
     if state.last_move:
         state.last_move.pop()
+
+def is_terminal(state: GameState):
+    if state.moves_remaining > 0:
+        return False
+    return True
+
+def switch_player(state: GameState):
+    if state.current_player == 1:
+        state.current_player = 2
+    else:
+        state.current_player = 1
+
+def get_winner(state: GameState):
+    if state.score_player1 > state.score_player2:
+        return 1
+    elif state.score_player1 < state.score_player2:
+        return 2
+    return 0
 
