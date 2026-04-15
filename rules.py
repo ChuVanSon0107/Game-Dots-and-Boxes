@@ -44,12 +44,8 @@ def get_affected_boxes(move: Move, rows: int, cols: int):
 
 
 def is_box_closed(state: GameState, box_r: int, box_c: int):
-    top = state.h_edges[box_r][box_c]
-    bottom = state.h_edges[box_r + 1][box_c]
-    left = state.v_edges[box_r][box_c]
-    right = state.v_edges[box_r][box_c + 1]
-
-    return top and bottom and left and right
+    """Kiểm tra ô vuông đã đủ 4 cạnh chưa """
+    return state.edges_count[box_r][box_c] == 4
 
 def apply_move(state: GameState, move: Move):
     """
@@ -95,7 +91,7 @@ def apply_move(state: GameState, move: Move):
         # Điểm mấu chốt: Ăn được ô thì KHÔNG đổi lượt (được đi tiếp)
     else:
         # Chuyển lượt: 1 -> 2, 2 -> 1
-        state.current_player = 3 - state.current_player
+        switch_player(state)
 
     # 4. Lưu lại lịch sử nước đi
     state.last_move.append(move)
@@ -141,10 +137,8 @@ def is_terminal(state: GameState):
     return True
 
 def switch_player(state: GameState):
-    if state.current_player == 1:
-        state.current_player = 2
-    else:
-        state.current_player = 1
+    """Chuyển lượt người chơi (1 -> 2, 2 -> 1)"""
+    state.current_player = 3 - state.current_player
 
 def get_winner(state: GameState):
     if state.score_player1 > state.score_player2:
