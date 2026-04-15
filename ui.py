@@ -2,7 +2,7 @@ import pygame
 import sys
 # Tuấn Khanh 14/4/2026
 # Các hàm thuộc lớp UI:
-# __init__: Khởi tạo giao diện, thiết lập các thuộc tính cần thiết từ state
+# __init__: Khởi tạo giao diện, thiết lập các thuộc tính cần thiết từ GameState
 # render_board: Vẽ lại bàn cờ dựa trên trạng thái hiện tại
 # check_box_completion: Kiểm tra xem việc đặt một đường có hoàn thành một ô vuông nào không, cập nhật điểm số nếu có
 # display_winner: Hiển thị người chiến thắng khi trò chơi kết thúc
@@ -10,7 +10,7 @@ import sys
 # run_game: Vòng lặp chính của trò chơi, xử lý sự kiện và cập nhật giao diện liên tục
 
 class UI:
-    def __init__(self, state):
+    def __init__(self, GameState):
         self.W, self.H = 800, 600 # Screen setup
         self.WHT, self.BLU, self.RED, self.BLK = (255, 255, 255), (0, 200, 255), (255, 0, 0), (0, 0, 0) # Colors
 
@@ -25,19 +25,19 @@ class UI:
         # Các thuộc tính cần khởi tạo:
         # self.size, self.edge, board_size, self.boxes, edges_count self.margin_left, self.margin_up,
         # current_player, score_player1, score_player2, moves_remaining, last_move (chưa có)
-        self.size = state['rows'] + 1 # self.size x self.size grid of dots, which creates a (self.size-1) x (self.size-1) grid of self.boxes
+        self.size = GameState.rows + 1 # self.size x self.size grid of dots, which creates a (self.size-1) x (self.size-1) grid of self.boxes
         self.edge = 56 # Spacing between grid points
         self.board_size = (self.size - 1) * self.edge # Total board width/height
-        self.h_edges = state['h_edges']
-        self.v_edges = state['v_edges']
-        self.boxes = state['boxes']
-        self.edges_count = state['edges_count']
+        self.h_edges = GameState.h_edges
+        self.v_edges = GameState.v_edges
+        self.boxes = GameState.boxes
+        self.edges_count = GameState.edges_count
         self.margin_left = (self.W - self.board_size) // 2 # Left margin for centering the board
         self.margin_up = 200 # Top margin for scoreboard space
         self.current_player = 1 # 1 for player 1, 2 for player 2
-        self.score_player1 = state['score_player1']
-        self.score_player2 = state['score_player2']
-        self.moves_remaining = state['moves_remaining']
+        self.score_player1 = GameState.score_player1
+        self.score_player2 = GameState.score_player2
+        self.moves_remaining = GameState.moves_remaining
 
     def render_board(self):
 
@@ -130,7 +130,7 @@ class UI:
                         if (self.h_edges[i][j] != 0): # If line is already filled, ignore click
                             break
                         moved = True
-                        self.h_edges[i][j] = self.current_player # Toggle line state base on player's turn
+                        self.h_edges[i][j] = self.current_player # Toggle line GameState base on player's turn
                         if self.check_box_completion(i - 1, j): # Check box above
                             res = True
                         if self.check_box_completion(i, j): # Check box below
@@ -153,7 +153,7 @@ class UI:
                             if (self.v_edges[i][j] != 0): # If line is already filled, ignore click
                                 break
                             moved = True
-                            self.v_edges[i][j] = self.current_player # Toggle line state base on player's turn
+                            self.v_edges[i][j] = self.current_player # Toggle line GameState base on player's turn
                             # Get the 2 self.boxes that could be completed by this line
                             if self.check_box_completion(i, j - 1): # Check box to the left
                                 res = True

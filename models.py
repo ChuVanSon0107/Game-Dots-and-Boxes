@@ -1,17 +1,38 @@
-def create_initial_state(rows, cols):
+class GameState:
+    def __init__(self, rows, cols, h_edges, v_edges, boxes, edges_count, current_player, score_player1, score_player2, moves_remaining, last_move=None):
+        self.rows = rows
+        self.cols = cols
+        self.h_edges = h_edges
+        self.v_edges = v_edges
+        self.boxes = boxes
+        self.edges_count = edges_count
+        self.current_player = current_player
+        self.score_player1 = score_player1
+        self.score_player2 = score_player2
+        self.moves_remaining = moves_remaining
+        self.last_move = last_move if last_move is not None else []
+
+
+class Move:
+    def __init__(self, edge_type, r, c):
+        self.edge_type = edge_type # 'H' or 'V'
+        self.r = r
+        self.c = c
+
+
+def create_initial_state(rows: int, columns: int):
     """
     Khởi tạo trạng thái ban đầu cho game Dots and Boxes.
     Trả về một dictionary chứa toàn bộ thông tin bàn cờ.
-    Dinhthuy 12/4/2026
     """
-    total_edges = (rows+1)*cols + rows*(cols+1)
+    total_edges = (rows+1)*columns + rows*(columns+1)
 
     #1. Khởi tạo mảng cạnh ngang h_edges
     # Kích thước (rows+1) hàng, cols cạnh
     h_edges = []
     for i in range(rows+1):
         row_edges=[]
-        for j in range(cols):
+        for j in range(columns):
             row_edges.append(False)
         h_edges.append(row_edges)
 
@@ -20,7 +41,7 @@ def create_initial_state(rows, cols):
     v_edges=[]
     for i in range(rows):
         row_edges = []
-        for j in range(cols+1):
+        for j in range(columns+1):
             row_edges.append(False)
         v_edges.append(row_edges)
 
@@ -30,7 +51,7 @@ def create_initial_state(rows, cols):
     boxes = []
     for i in range(rows):
         row_boxes = []
-        for j in range(cols):
+        for j in range(columns):
             row_boxes.append(0)
         boxes.append(row_boxes)
 
@@ -39,32 +60,35 @@ def create_initial_state(rows, cols):
     edges_count=[]
     for i in range(rows):
         row_counts=[]
-        for j in range(cols):
+        for j in range(columns):
             row_counts.append(0)
         edges_count.append(row_counts)
 
-    state = {
-        'rows': rows,
-        'cols': cols,
-        'h_edges': h_edges,
-        'v_edges': v_edges,
-        'boxes': boxes,
-        'edges_count': edges_count,
-        'current_player': 1, #mặc định người 1 đi trước
-        'score_player1': 0,
-        'score_player2': 0,
-        'moves_remaining': total_edges,
-        'last_move': []  #Stack lưu lịch sử nước đi
-    }
+    return GameState(
+        rows=rows,
+        cols=columns,
+        h_edges=h_edges,
+        v_edges=v_edges,
+        boxes=boxes,
+        edges_count=edges_count,
+        current_player=1,
+        score_player1=0,
+        score_player2=0,
+        moves_remaining=total_edges,
+        last_move=[]
+    )
+    
 
-    return state
 
 # # --- Đoạn code test ---
-# if __name__ == "__main__":
+"""
+if __name__ == "__main__":
 #     # Test thử tạo một bàn cờ kích thước 2 hàng, 2 cột
-#     test_state = create_initial_state(2, 2)
-    
-#     print("--- KHỞI TẠO STATE THÀNH CÔNG ---")
-#     print("Tổng số cạnh (moves_remaining):", test_state['moves_remaining'])
-#     print("Mảng trạng thái các ô (boxes):", test_state['boxes'])
-#     print("Lượt đi hiện tại:", test_state['current_player'])
+    test_state = create_initial_state(2, 2)
+
+    print("--- KHỞI TẠO STATE THÀNH CÔNG ---")
+    print("Tổng số cạnh (moves_remaining):", test_state.moves_remaining)
+    print("Mảng trạng thái các ô (boxes):", test_state.boxes)
+    print("Lượt đi hiện tại:", test_state.current_player)
+
+"""
