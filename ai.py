@@ -52,23 +52,17 @@ def would_complete_box(state: GameState, move: Move):
 
 def get_safe_moves(state: GameState):
     """
-    Tìm nước đi an toàn (không làm xuất hiện cạnh 3)
+    Tìm nước đi an toàn: Lọc từ danh sách nước đi hợp lệ những nước KHÔNG tạo ra cạnh 3.
     """
     moves = []
-
-    # Ngang
-    for r in range(state.rows + 1):
-        for c in range(state.cols):
-            move = Move('H', r, c)
-            if would_create_third_edge(state, move) > 0:
-               moves.append(move)
-
-    # Dọc
-    for r in range(state.rows):
-        for c in range(state.cols + 1):
-            move = Move('V', r, c)
-            if would_create_third_edge(state, move) > 0:
-                moves.append(move)
+    
+    # Chỉ duyệt qua những nước đi chắc chắn hợp lệ (chưa bị vẽ)
+    legal_moves = get_legal_moves(state)
+    
+    for move in legal_moves:
+        # Nếu nước đi này không vô tình tạo ra ô 3 cạnh cho đối thủ ăn
+        if would_create_third_edge(state, move) == 0:
+            moves.append(move)
 
     return moves
 
