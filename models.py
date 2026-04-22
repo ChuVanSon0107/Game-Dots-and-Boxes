@@ -135,6 +135,7 @@ def create_initial_state(rows: int, columns: int):
 
 
 
+
 # # --- Đoạn code test ---
 """"
 if __name__ == "__main__":
