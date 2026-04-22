@@ -136,7 +136,7 @@ def create_initial_state(rows: int, columns: int):
 
 
 # # --- Đoạn code test ---
-
+""""
 if __name__ == "__main__":
 #     # Test thử tạo một bàn cờ kích thước 2 hàng, 2 cột
     test_state = create_initial_state(2, 2)
@@ -147,3 +147,4 @@ if __name__ == "__main__":
     print("Lượt đi hiện tại:", test_state.current_player)
     test_state.print_game_status()
     test_clone = test_state.clone_state()
+"""
