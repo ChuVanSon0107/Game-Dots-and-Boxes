@@ -10,28 +10,57 @@ class UI:
         pygame.init()
         pygame.mixer.init() 
         
-        # --- THIẾT LẬP CỬA SỔ & MÀU SẮC ---
+        # --- WINDOW & DISPLAY SETUP ---
         self.W, self.H = 800, 600
         self.screen = pygame.display.set_mode((self.W, self.H))
         pygame.display.set_caption("Dots and Boxes - AI Project")
         self.clock = pygame.time.Clock()
         
-        # Bảng màu
-        self.DOT_COLOR = (255, 255, 255)      
-        self.DOT_OUTLINE = (200, 190, 180)    
-        self.P1_COLOR = (45, 212, 235)        # Xanh Cyan (Người)
-        self.P2_COLOR = (255, 65, 84)         # Đỏ (Máy)
-        self.LINE_EMPTY = (220, 210, 200)     
-        self.LINE_FILLED = (100, 100, 100)    
-        self.SELECT_COLOR = (255, 215, 0)     
+        # ==========================================
+        # THEME ENGINE (UI COLORS)
+        # ==========================================
+        self.themes = [
+            {
+                'name': 'Classic Wood',
+                'use_bg_image': True,
+                'bg_top': (220, 240, 245), 'bg_bot': (250, 240, 230),
+                'board_bg': None, 
+                'text_main': (70, 70, 70), 'text_score': (80, 80, 80),
+                'p1': (45, 212, 235), 'p2': (255, 65, 84), # P1 Cyan, P2 Red
+                'dot_core': (255, 255, 255), 'dot_out': (200, 190, 180),
+                'line_empty': (220, 210, 200), 'line_fill': (100, 100, 100)
+            },
+            {
+                'name': 'Dark Night',
+                'use_bg_image': False,
+                'bg_top': (40, 45, 50), 'bg_bot': (15, 20, 25),
+                'board_bg': (30, 30, 35), 
+                'text_main': (230, 230, 230), 'text_score': (200, 200, 200),
+                'p1': (255, 180, 0), 'p2': (0, 200, 255), # P1 Gold, P2 Blue
+                'dot_core': (60, 60, 65), 'dot_out': (255, 180, 0),
+                'line_empty': (50, 50, 55), 'line_fill': (200, 200, 200)
+            },
+            {
+                'name': 'Snow White',
+                'use_bg_image': False,
+                'bg_top': (245, 245, 245), 'bg_bot': (230, 230, 230),
+                'board_bg': (255, 255, 255), 
+                'text_main': (50, 50, 50), 'text_score': (100, 100, 100),
+                'p1': (230, 50, 70), 'p2': (50, 100, 230), 
+                'dot_core': (255, 255, 255), 'dot_out': (200, 200, 200),
+                'line_empty': (235, 235, 235), 'line_fill': (80, 80, 80)
+            }
+        ]
+        self.current_theme_idx = 0
+        self.apply_theme()
 
         self.font_title = pygame.font.SysFont("Verdana", 45, bold=True)
         self.font_turn = pygame.font.SysFont("Verdana", 32, bold=True) 
         self.font_score = pygame.font.SysFont("Verdana", 28, bold=True) 
-        self.font_menu = pygame.font.SysFont("Verdana", 30)
+        self.font_menu = pygame.font.SysFont("Verdana", 30, bold=True)
         self.font_text = pygame.font.SysFont("Verdana", 20)
 
-        # --- TẢI TÀI NGUYÊN ---
+        # --- ASSETS LOADING ---
         self.bg_image = None
         base_dir = os.path.dirname(os.path.abspath(__file__))
         try:
@@ -50,34 +79,43 @@ class UI:
         except Exception:
             pass
 
-        # --- TRẠNG THÁI GAME & DỮ LIỆU ---
+        # --- GAME STATE & FLAGS ---
         self.app_state = 'MENU'
         self.previous_state = 'MENU' 
         self.show_tutorial = False 
         
         self.GameState = GameState
-        
         self.size = GameState.rows + 1 
         self.edge = 65 
         self.board_width = (self.size - 1) * self.edge 
         self.board_height = (self.size - 1) * self.edge
         self.margin_left = (self.W - self.board_width) // 2 
-        self.margin_up = 160 
+        self.margin_up = 165 
         
         self.selected_dot = None 
         self.floating_texts = [] 
         self.history_undo_info = []
 
-        # Timers cho Animation khuôn mặt
         self.p1_shake_timer = 0
         self.p2_shake_timer = 0
+
+    def apply_theme(self):
+        t = self.themes[self.current_theme_idx]
+        self.P1_COLOR = t['p1']
+        self.P2_COLOR = t['p2']
+        self.DOT_COLOR = t['dot_core']
+        self.DOT_OUTLINE = t['dot_out']
+        self.LINE_EMPTY = t['line_empty']
+        self.LINE_FILLED = t['line_fill']
+        self.TEXT_MAIN = t['text_main']
+        self.TEXT_SCORE = t['text_score']
 
     def play_sound(self, sound_name):
         if self.sound_enabled and sound_name in self.sounds:
             self.sounds[sound_name].play()
 
     # ==========================================
-    # HỆ THỐNG VẼ GIAO DIỆN CHUNG
+    # UI COMPONENT ENGINE
     # ==========================================
     def _draw_enhanced_button(self, text, x_center, y_center, width, height, bg_color, text_color):
         mouse_pos = pygame.mouse.get_pos()
@@ -97,39 +135,64 @@ class UI:
             
         shadow_rect = display_rect.copy()
         shadow_rect.y += shadow_offset 
-        pygame.draw.rect(self.screen, (160, 150, 140), shadow_rect, border_radius=radius)
+        s_color = (20, 20, 20) if self.current_theme_idx == 1 else (160, 150, 140)
+        pygame.draw.rect(self.screen, s_color, shadow_rect, border_radius=radius)
         pygame.draw.rect(self.screen, current_color, display_rect, border_radius=radius)
         
         btn_surf = self.font_menu.render(text, True, text_color)
         text_rect = btn_surf.get_rect(center=display_rect.center)
         self.screen.blit(btn_surf, text_rect)
-        
         return base_rect
 
+    def _draw_setting_selector(self, label, value_text, y_pos):
+        # Label Title
+        label_surf = self.font_turn.render(label, True, self.TEXT_MAIN)
+        self.screen.blit(label_surf, (self.W // 2 - label_surf.get_width() // 2, y_pos - 45))
+
+        # Main White Box
+        box_w, box_h = 340, 56
+        box_rect = pygame.Rect(0, 0, box_w, box_h)
+        box_rect.center = (self.W // 2, y_pos + 15)
+        
+        shadow_rect = box_rect.copy()
+        shadow_rect.y += 4
+        s_color = (20, 20, 20) if self.current_theme_idx == 1 else (160, 150, 140)
+        pygame.draw.rect(self.screen, s_color, shadow_rect, border_radius=15)
+        pygame.draw.rect(self.screen, (255, 255, 255), box_rect, border_radius=15)
+
+        # Value Text
+        val_surf = self.font_turn.render(value_text, True, (50, 50, 50))
+        self.screen.blit(val_surf, (self.W // 2 - val_surf.get_width() // 2, y_pos + 15 - val_surf.get_height() // 2))
+
+        # Arrow Buttons
+        cyan_color = (0, 190, 200) 
+        l_btn = self._draw_enhanced_button("<", self.W // 2 - box_w // 2 + 10, y_pos + 15, 55, 55, cyan_color, (255, 255, 255))
+        r_btn = self._draw_enhanced_button(">", self.W // 2 + box_w // 2 - 10, y_pos + 15, 55, 55, cyan_color, (255, 255, 255))
+        return l_btn, r_btn
+
     def _draw_background(self):
-        if self.bg_image:
+        t = self.themes[self.current_theme_idx]
+        if t['use_bg_image'] and self.bg_image:
             self.screen.blit(self.bg_image, (0, 0))
             overlay = pygame.Surface((self.W, self.H))
             overlay.set_alpha(120)
             overlay.fill((255, 255, 255))
             self.screen.blit(overlay, (0, 0))
         else:
-            top_color, bottom_color = (220, 240, 245), (250, 240, 230)
+            top_c, bot_c = t['bg_top'], t['bg_bot']
             for y in range(self.H):
-                r = top_color[0] + (bottom_color[0] - top_color[0]) * y // self.H
-                g = top_color[1] + (bottom_color[1] - top_color[1]) * y // self.H
-                b = top_color[2] + (bottom_color[2] - top_color[2]) * y // self.H
+                r = top_c[0] + (bot_c[0] - top_c[0]) * y // self.H
+                g = top_c[1] + (bot_c[1] - top_c[1]) * y // self.H
+                b = top_c[2] + (bot_c[2] - top_c[2]) * y // self.H
                 pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
 
     # ==========================================
-    # CỬA SỔ HƯỚNG DẪN (TUTORIAL MODAL)
+    # MODAL WINDOWS (TUTORIAL & GAME OVER)
     # ==========================================
     def _draw_tutorial_modal(self):
         if not self.show_tutorial: return
-        
         overlay = pygame.Surface((self.W, self.H))
-        overlay.set_alpha(150)
-        overlay.fill((0, 0, 0))
+        overlay.set_alpha(150); overlay.fill((0, 0, 0))
         self.screen.blit(overlay, (0, 0))
         
         modal_rect = pygame.Rect(0, 0, 520, 350)
@@ -140,327 +203,286 @@ class UI:
         title = self.font_turn.render("HOW TO PLAY", True, (50, 50, 50))
         self.screen.blit(title, (self.W // 2 - title.get_width() // 2, modal_rect.y + 20))
         
-        instructions = [
-            "1. Click to connect 2 adjacent dots.",
-            "2. The player who completes a box (4 sides)",
-            "   gets 1 point and an EXTRA TURN.",
-            "3. The game ends when the board is full.",
-            "4. The player with the most points wins!"
+        instr = [
+            "1. Connect 2 adjacent dots.",
+            "2. Complete a box (4 sides) to get 1 point.",
+            "3. Completing a box gives you an EXTRA TURN.",
+            "4. Game ends when the board is full.",
+            "5. The player with most points wins!"
         ]
-        
-        y_offset = modal_rect.y + 90
-        for line in instructions:
+        y_off = modal_rect.y + 90
+        for line in instr:
             text_surf = self.font_text.render(line, True, (80, 80, 80))
-            self.screen.blit(text_surf, (modal_rect.x + 40, y_offset))
-            y_offset += 35
+            self.screen.blit(text_surf, (modal_rect.x + 40, y_off))
+            y_off += 35
             
         self.btn_close_tutorial = self._draw_enhanced_button("Got it!", self.W // 2, modal_rect.bottom - 40, 200, 50, self.P2_COLOR, (255, 255, 255))
-
-    # ==========================================
-    # PHẦN 1: MENU
-    # ==========================================
-    def render_menu(self):
-        self._draw_background()
-        title = self.font_title.render("Dots & Boxes", True, (70, 70, 70))
-        self.screen.blit(title, (self.W // 2 - title.get_width() // 2, 80))
-
-        self.btn_play = self._draw_enhanced_button("Play Game", self.W // 2, 220, 300, 60, self.P1_COLOR, (255, 255, 255))
-        self.btn_settings = self._draw_enhanced_button("Settings", self.W // 2, 300, 300, 60, (150, 150, 150), (255, 255, 255))
-        self.btn_tutorial = self._draw_enhanced_button("Tutorial", self.W // 2, 380, 300, 60, self.P2_COLOR, (255, 255, 255))
-        self.btn_quit = self._draw_enhanced_button("Quit", self.W // 2, 460, 300, 60, (100, 100, 100), (255, 255, 255))
-        
-        self._draw_tutorial_modal()
-
-    def render_settings(self):
-        self._draw_background()
-        title = self.font_title.render("Settings", True, (70, 70, 70))
-        self.screen.blit(title, (self.W // 2 - title.get_width() // 2, 80))
-        
-        sound_text = "Sound: ON" if self.sound_enabled else "Sound: OFF"
-        sound_color = self.P1_COLOR if self.sound_enabled else self.LINE_FILLED
-        
-        self.btn_toggle_sound = self._draw_enhanced_button(sound_text, self.W // 2, 250, 300, 60, sound_color, (255, 255, 255))
-        self.btn_back = self._draw_enhanced_button("Back", self.W // 2, 400, 300, 60, (150, 150, 150), (255, 255, 255))
-
-    # ==========================================
-    # PHẦN 2: HEADER IN-GAME (VẼ AVATAR)
-    # ==========================================
-    def _draw_avatar(self, x, y, color, is_bot, timer):
-        offset_y = 0
-        if timer > 0:
-            offset_y = math.sin(timer * 0.8) * 8 
-            
-        y += offset_y
-        
-        pygame.draw.circle(self.screen, color, (x, y), 35)
-        
-        if not is_bot:
-            pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 5), 10, 3)
-            pygame.draw.arc(self.screen, (255, 255, 255), (x - 18, y - 5, 36, 40), 0, math.pi, 3)
-            pygame.draw.line(self.screen, (255, 255, 255), (x - 18, y + 15), (x + 18, y + 15), 3) 
-        else:
-            pygame.draw.rect(self.screen, (255, 255, 255), (x - 15, y - 10, 30, 22), 3, border_radius=4)
-            pygame.draw.circle(self.screen, (255, 255, 255), (x - 6, y - 2), 3) 
-            pygame.draw.circle(self.screen, (255, 255, 255), (x + 6, y - 2), 3) 
-            pygame.draw.line(self.screen, (255, 255, 255), (x - 6, y + 6), (x + 6, y + 6), 2) 
-            pygame.draw.line(self.screen, (255, 255, 255), (x, y - 10), (x, y - 18), 2) 
-            pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 18), 3) 
-
-    def _draw_header(self):
-        turn_text = "Turn: P1 (You)" if self.GameState.current_player == 1 else "Turn: P2 (Bot)"
-        turn_color = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
-        turn_surf = self.font_turn.render(turn_text, True, turn_color)
-        self.screen.blit(turn_surf, (self.W // 2 - turn_surf.get_width() // 2, 40))
-
-        # === PLAYER 1 ===
-        p1_x, p1_y = 80, 50
-        self._draw_avatar(p1_x, p1_y, self.P1_COLOR, False, self.p1_shake_timer)
-        
-        score1_x = p1_x + 50
-        pygame.draw.circle(self.screen, (255, 255, 255), (score1_x, p1_y), 28)
-        pygame.draw.circle(self.screen, (200, 200, 200), (score1_x, p1_y), 28, 1) 
-        score1_surf = self.font_score.render(str(self.GameState.score_player1), True, self.P1_COLOR)
-        self.screen.blit(score1_surf, (score1_x - score1_surf.get_width()//2, p1_y - score1_surf.get_height()//2))
-        
-        if self.GameState.current_player == 1:
-            pygame.draw.line(self.screen, self.P1_COLOR, (p1_x - 30, p1_y + 45), (p1_x + 30, p1_y + 45), 4)
-
-        # === PLAYER 2 ===
-        p2_x, p2_y = self.W - 80, 50
-        self._draw_avatar(p2_x, p2_y, self.P2_COLOR, True, self.p2_shake_timer)
-        
-        score2_x = p2_x - 50
-        pygame.draw.circle(self.screen, (255, 255, 255), (score2_x, p2_y), 28)
-        pygame.draw.circle(self.screen, (200, 200, 200), (score2_x, p2_y), 28, 1)
-        score2_surf = self.font_score.render(str(self.GameState.score_player2), True, self.P2_COLOR)
-        self.screen.blit(score2_surf, (score2_x - score2_surf.get_width()//2, p2_y - score2_surf.get_height()//2))
-
-        if self.GameState.current_player == 2:
-            pygame.draw.line(self.screen, self.P2_COLOR, (p2_x - 30, p2_y + 45), (p2_x + 30, p2_y + 45), 4)
-
-    # ==========================================
-    # CÁC HÀM VẼ IN-GAME CÒN LẠI
-    # ==========================================
-    def _draw_lines_and_boxes(self):
-        for i in range(self.GameState.rows + 1):
-            for j in range(self.GameState.cols):
-                start = (self.margin_left + j * self.edge, self.margin_up + i * self.edge)
-                end = (self.margin_left + (j + 1) * self.edge, self.margin_up + i * self.edge)
-                color = self.LINE_FILLED if self.GameState.h_edges[i][j] else self.LINE_EMPTY
-                pygame.draw.line(self.screen, color, start, end, 12)
-
-        for i in range(self.GameState.rows):
-            for j in range(self.GameState.cols + 1):
-                start = (self.margin_left + j * self.edge, self.margin_up + i * self.edge)
-                end = (self.margin_left + j * self.edge, self.margin_up + (i + 1) * self.edge)
-                color = self.LINE_FILLED if self.GameState.v_edges[i][j] else self.LINE_EMPTY
-                pygame.draw.line(self.screen, color, start, end, 12)
-
-        for i in range(self.GameState.rows):
-            for j in range(self.GameState.cols):
-                owner = self.GameState.boxes[i][j]
-                if owner != 0:
-                    color = self.P1_COLOR if owner == 1 else self.P2_COLOR
-                    rect = (self.margin_left + j * self.edge + 6, self.margin_up + i * self.edge + 6, self.edge - 12, self.edge - 12)
-                    pygame.draw.rect(self.screen, color, rect, border_radius=8)
-
-    def _draw_dots(self):
-        current_color = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
-        for i in range(self.size):
-            for j in range(self.size):
-                cx, cy = self.margin_left + j * self.edge, self.margin_up + i * self.edge
-                pygame.draw.circle(self.screen, self.DOT_OUTLINE, (cx, cy), 14)
-                if self.selected_dot == (i, j):
-                    pygame.draw.circle(self.screen, current_color, (cx, cy), 18)
-                elif self.selected_dot is not None:
-                    r1, c1 = self.selected_dot
-                    if (abs(i - r1) == 1 and j == c1) or (abs(j - c1) == 1 and i == r1):
-                        empty = False
-                        if i == r1 and not self.GameState.h_edges[i][min(c1, j)]: empty = True
-                        elif j == c1 and not self.GameState.v_edges[min(r1, i)][j]: empty = True
-                        if empty: pygame.draw.circle(self.screen, current_color, (cx, cy), 16, 4) 
-                pygame.draw.circle(self.screen, self.DOT_COLOR, (cx, cy), 10)
-
-    def _draw_floating_texts(self):
-        for f in self.floating_texts[:]:
-            f['y'] -= 1.5 
-            f['timer'] -= 1
-            alpha = max(0, min(255, f['timer'] * 4)) 
-            text_surf = self.font_turn.render(f['text'], True, f['color'])
-            text_surf.set_alpha(alpha)
-            self.screen.blit(text_surf, (f['x'], f['y']))
-            if f['timer'] <= 0: self.floating_texts.remove(f)
-
-    def _draw_in_game_buttons(self):
-        button_y = self.H - 50
-        self.btn_in_game_help = self._draw_enhanced_button("?", 40, button_y, 50, 50, self.P1_COLOR, (255, 255, 255))
-        self.btn_undo = self._draw_enhanced_button("Undo", 160, button_y, 140, 50, (255, 165, 0), (255, 255, 255))
-        self.btn_in_game_settings = self._draw_enhanced_button("Settings", self.W // 2 + 20, button_y, 140, 50, (150, 150, 150), (255, 255, 255))
-        self.btn_in_game_exit = self._draw_enhanced_button("Exit", self.W - 100, button_y, 140, 50, (100, 100, 100), (255, 255, 255))
-
-    def render_game(self):
-        self._draw_background() 
-        self._draw_header()
-        self._draw_lines_and_boxes()
-        self._draw_dots()
-        self._draw_floating_texts() 
-        self._draw_in_game_buttons()
-        self._draw_tutorial_modal() 
 
     def render_game_over(self):
         self.render_game() 
         if not self.show_tutorial:
             overlay = pygame.Surface((self.W, self.H))
             overlay.set_alpha(180) 
-            overlay.fill((255, 255, 255))
+            overlay.fill((0, 0, 0) if self.current_theme_idx == 1 else (255, 255, 255))
             self.screen.blit(overlay, (0, 0))
 
+            modal_rect = pygame.Rect(0, 0, 420, 400)
+            modal_rect.center = (self.W // 2, self.H // 2)
+            
+            shadow_rect = modal_rect.copy()
+            shadow_rect.y += 8
+            s_color = (20, 20, 20) if self.current_theme_idx == 1 else (150, 150, 150)
+            pygame.draw.rect(self.screen, s_color, shadow_rect, border_radius=25)
+            
+            m_bg = (40, 45, 50) if self.current_theme_idx == 1 else (255, 255, 255)
+            pygame.draw.rect(self.screen, m_bg, modal_rect, border_radius=25)
+
             res = rules.get_winner(self.GameState)
-            if res == 1: text, color = "PLAYER 1 WINS!", self.P1_COLOR
-            elif res == 2: text, color = "PLAYER 2 WINS!", self.P2_COLOR
-            else: text, color = "IT'S A TIE!", (100, 100, 100)
+            if res == 1:
+                title, win_c, detail = "VICTORY!", self.P1_COLOR, "You won the game!"
+            elif res == 2:
+                title, win_c, detail = "DEFEAT!", self.P2_COLOR, "Bot won the game!"
+            else:
+                title, win_c, detail = "DRAW!", self.TEXT_MAIN, "It's a tie game!"
                 
-            win_surf = self.font_title.render(text, True, color)
-            self.screen.blit(win_surf, (self.W // 2 - win_surf.get_width() // 2, self.H // 2 - 50))
-            self.btn_back_menu = self._draw_enhanced_button("Back to Menu", self.W // 2, self.H // 2 + 50, 300, 60, (150, 150, 150), (255, 255, 255))
+            pygame.draw.rect(self.screen, win_c, modal_rect, width=5, border_radius=25)
+
+            t_surf = self.font_title.render(title, True, win_c)
+            self.screen.blit(t_surf, (self.W // 2 - t_surf.get_width() // 2, modal_rect.y + 35))
+
+            score = f"{self.GameState.score_player1} - {self.GameState.score_player2}"
+            s_surf = self.font_title.render(score, True, self.TEXT_MAIN)
+            self.screen.blit(s_surf, (self.W // 2 - s_surf.get_width() // 2, modal_rect.y + 105))
+
+            d_surf = self.font_text.render(detail, True, self.TEXT_SCORE)
+            self.screen.blit(d_surf, (self.W // 2 - d_surf.get_width() // 2, modal_rect.y + 175))
+
+            btn_c = win_c if res != 0 else self.P1_COLOR
+            self.btn_play_again = self._draw_enhanced_button("Play Again", self.W // 2, modal_rect.bottom - 120, 280, 55, btn_c, (255, 255, 255))
+            self.btn_back_menu = self._draw_enhanced_button("Main Menu", self.W // 2, modal_rect.bottom - 50, 280, 55, (150, 150, 150), (255, 255, 255))
 
     # ==========================================
-    # PHẦN 3: XỬ LÝ SỰ KIỆN CLICK 
+    # GAME RENDERERS
+    # ==========================================
+    def render_menu(self):
+        self._draw_background()
+        title = self.font_title.render("Dots & Boxes", True, self.TEXT_MAIN)
+        self.screen.blit(title, (self.W // 2 - title.get_width() // 2, 80))
+
+        self.btn_play = self._draw_enhanced_button("Play Game", self.W // 2, 220, 300, 60, self.P1_COLOR, (255, 255, 255))
+        self.btn_settings = self._draw_enhanced_button("Settings", self.W // 2, 300, 300, 60, (150, 150, 150), (255, 255, 255))
+        self.btn_tutorial = self._draw_enhanced_button("Tutorial", self.W // 2, 380, 300, 60, self.P2_COLOR, (255, 255, 255))
+        self.btn_quit = self._draw_enhanced_button("Quit", self.W // 2, 460, 300, 60, (100, 100, 100), (255, 255, 255))
+        self._draw_tutorial_modal()
+
+    def render_settings(self):
+        self._draw_background()
+        title = self.font_title.render("Settings", True, self.TEXT_MAIN)
+        self.screen.blit(title, (self.W // 2 - title.get_width() // 2, 60))
+        
+        sound_val = "ON" if self.sound_enabled else "OFF"
+        self.btn_sound_l, self.btn_sound_r = self._draw_setting_selector("Sound", sound_val, 190)
+        
+        theme_val = self.themes[self.current_theme_idx]['name']
+        self.btn_theme_l, self.btn_theme_r = self._draw_setting_selector("Theme", theme_val, 330)
+        
+        self.btn_back = self._draw_enhanced_button("Back", self.W // 2, 470, 300, 60, (150, 150, 150), (255, 255, 255))
+
+    def _draw_avatar(self, x, y, color, is_bot, timer):
+        off_y = math.sin(timer * 0.8) * 8 if timer > 0 else 0
+        y += off_y
+        pygame.draw.circle(self.screen, color, (x, y), 35)
+        if not is_bot: # Human icon
+            pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 5), 10, 3)
+            pygame.draw.arc(self.screen, (255, 255, 255), (x - 18, y - 5, 36, 40), 0, math.pi, 3)
+            pygame.draw.line(self.screen, (255, 255, 255), (x - 18, y + 15), (x + 18, y + 15), 3) 
+        else: # Robot icon
+            pygame.draw.rect(self.screen, (255, 255, 255), (x - 15, y - 10, 30, 22), 3, border_radius=4)
+            pygame.draw.circle(self.screen, (255, 255, 255), (x - 6, y - 2), 3) 
+            pygame.draw.circle(self.screen, (255, 255, 255), (x + 6, y - 2), 3) 
+            pygame.draw.line(self.screen, (255, 255, 255), (x, y - 10), (x, y - 18), 2) 
+            pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 18), 3) 
+
+    def _draw_header(self):
+        turn_txt = "Turn: P1 (You)" if self.GameState.current_player == 1 else "Turn: P2 (Bot)"
+        turn_c = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
+        turn_s = self.font_turn.render(turn_txt, True, turn_c)
+        self.screen.blit(turn_s, (self.W // 2 - turn_s.get_width() // 2, 40))
+
+        # P1 Header
+        p1_x, p1_y = 80, 50
+        self._draw_avatar(p1_x, p1_y, self.P1_COLOR, False, self.p1_shake_timer)
+        s1_x = p1_x + 55
+        pygame.draw.circle(self.screen, (255, 255, 255), (s1_x, p1_y), 28)
+        pygame.draw.circle(self.screen, (200, 200, 200), (s1_x, p1_y), 28, 1) 
+        sc1 = self.font_score.render(str(self.GameState.score_player1), True, self.P1_COLOR)
+        self.screen.blit(sc1, (s1_x - sc1.get_width()//2, p1_y - sc1.get_height()//2))
+        if self.GameState.current_player == 1:
+            pygame.draw.line(self.screen, self.P1_COLOR, (p1_x - 30, p1_y + 45), (p1_x + 30, p1_y + 45), 4)
+
+        # P2 Header
+        p2_x, p2_y = self.W - 80, 50
+        self._draw_avatar(p2_x, p2_y, self.P2_COLOR, True, self.p2_shake_timer)
+        s2_x = p2_x - 55
+        pygame.draw.circle(self.screen, (255, 255, 255), (s2_x, p2_y), 28)
+        pygame.draw.circle(self.screen, (200, 200, 200), (s2_x, p2_y), 28, 1)
+        sc2 = self.font_score.render(str(self.GameState.score_player2), True, self.P2_COLOR)
+        self.screen.blit(sc2, (s2_x - sc2.get_width()//2, p2_y - sc2.get_height()//2))
+        if self.GameState.current_player == 2:
+            pygame.draw.line(self.screen, self.P2_COLOR, (p2_x - 30, p2_y + 45), (p2_x + 30, p2_y + 45), 4)
+
+    def _draw_lines_and_boxes(self):
+        t = self.themes[self.current_theme_idx]
+        if t['board_bg']:
+            pad = 40
+            bg_r = pygame.Rect(self.margin_left - pad, self.margin_up - pad, 
+                               self.board_width + pad*2, self.board_height + pad*2)
+            pygame.draw.rect(self.screen, t['board_bg'], bg_r, border_radius=20)
+
+        for i in range(self.GameState.rows + 1):
+            for j in range(self.GameState.cols):
+                start = (self.margin_left + j * self.edge, self.margin_up + i * self.edge)
+                end = (self.margin_left + (j + 1) * self.edge, self.margin_up + i * self.edge)
+                c = self.LINE_FILLED if self.GameState.h_edges[i][j] else self.LINE_EMPTY
+                pygame.draw.line(self.screen, c, start, end, 12)
+
+        for i in range(self.GameState.rows):
+            for j in range(self.GameState.cols + 1):
+                start = (self.margin_left + j * self.edge, self.margin_up + i * self.edge)
+                end = (self.margin_left + j * self.edge, self.margin_up + (i + 1) * self.edge)
+                c = self.LINE_FILLED if self.GameState.v_edges[i][j] else self.LINE_EMPTY
+                pygame.draw.line(self.screen, c, start, end, 12)
+
+        for i in range(self.GameState.rows):
+            for j in range(self.GameState.cols):
+                owner = self.GameState.boxes[i][j]
+                if owner != 0:
+                    c = self.P1_COLOR if owner == 1 else self.P2_COLOR
+                    r = (self.margin_left + j * self.edge + 6, self.margin_up + i * self.edge + 6, self.edge - 12, self.edge - 12)
+                    pygame.draw.rect(self.screen, c, r, border_radius=8)
+
+    def _draw_dots(self):
+        cur_c = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
+        for i in range(self.size):
+            for j in range(self.size):
+                cx, cy = self.margin_left + j * self.edge, self.margin_up + i * self.edge
+                pygame.draw.circle(self.screen, self.DOT_OUTLINE, (cx, cy), 15)
+                if self.selected_dot == (i, j):
+                    pygame.draw.circle(self.screen, cur_c, (cx, cy), 18)
+                elif self.selected_dot is not None:
+                    r1, c1 = self.selected_dot
+                    if (abs(i-r1)==1 and j==c1) or (abs(j-c1)==1 and i==r1):
+                        empty = False
+                        if i==r1 and not self.GameState.h_edges[i][min(c1,j)]: empty = True
+                        elif j==c1 and not self.GameState.v_edges[min(r1,i)][j]: empty = True
+                        if empty: pygame.draw.circle(self.screen, cur_c, (cx, cy), 17, 4) 
+                pygame.draw.circle(self.screen, self.DOT_COLOR, (cx, cy), 11)
+
+    def _draw_floating_texts(self):
+        for f in self.floating_texts[:]:
+            f['y'] -= 1.5; f['timer'] -= 1
+            alpha = max(0, min(255, f['timer'] * 4)) 
+            text_s = self.font_turn.render(f['text'], True, f['color'])
+            text_s.set_alpha(alpha)
+            self.screen.blit(text_s, (f['x'], f['y']))
+            if f['timer'] <= 0: self.floating_texts.remove(f)
+
+    def _draw_in_game_buttons(self):
+        y = self.H - 50
+        self.btn_in_game_help = self._draw_enhanced_button("?", 40, y, 50, 50, self.P1_COLOR, (255, 255, 255))
+        self.btn_undo = self._draw_enhanced_button("Undo", 160, y, 140, 50, (255, 165, 0), (255, 255, 255))
+        self.btn_in_game_settings = self._draw_enhanced_button("Settings", self.W // 2 + 20, y, 140, 50, (150, 150, 150), (255, 255, 255))
+        self.btn_in_game_exit = self._draw_enhanced_button("Exit", self.W - 100, y, 140, 50, (100, 100, 100), (255, 255, 255))
+
+    def render_game(self):
+        self._draw_background(); self._draw_header(); self._draw_lines_and_boxes()
+        self._draw_dots(); self._draw_floating_texts(); self._draw_in_game_buttons()
+        self._draw_tutorial_modal()
+
+    # ==========================================
+    # INPUT HANDLING
     # ==========================================
     def handle_click(self, pos):
         if self.show_tutorial:
-            if self.btn_close_tutorial.collidepoint(pos):
-                self.play_sound('click')
-                self.show_tutorial = False
+            if self.btn_close_tutorial.collidepoint(pos): self.play_sound('click'); self.show_tutorial = False
             return 
 
         if self.app_state == 'MENU':
             if self.btn_play.collidepoint(pos): 
-                self.play_sound('click')
-                self.GameState = models.create_initial_state(self.GameState.rows, self.GameState.cols)
-                self.selected_dot = None     
-                self.floating_texts.clear()  
-                self.history_undo_info.clear() 
-                self.app_state = 'GAME'
-                
-            elif self.btn_tutorial.collidepoint(pos):
-                self.play_sound('click')
-                self.show_tutorial = True
-            elif self.btn_settings.collidepoint(pos): 
-                self.play_sound('click')
-                self.previous_state = 'MENU' 
-                self.app_state = 'SETTINGS'
-            elif self.btn_quit.collidepoint(pos):
-                pygame.quit()
-                sys.exit()
+                self.play_sound('click'); self.GameState = models.create_initial_state(self.GameState.rows, self.GameState.cols)
+                self.selected_dot = None; self.floating_texts.clear(); self.history_undo_info.clear(); self.app_state = 'GAME'
+            elif self.btn_tutorial.collidepoint(pos): self.play_sound('click'); self.show_tutorial = True
+            elif self.btn_settings.collidepoint(pos): self.play_sound('click'); self.previous_state = 'MENU'; self.app_state = 'SETTINGS'
+            elif self.btn_quit.collidepoint(pos): pygame.quit(); sys.exit()
                 
         elif self.app_state == 'SETTINGS':
-            if self.btn_back.collidepoint(pos): 
-                self.play_sound('click')
-                self.app_state = self.previous_state 
-            elif self.btn_toggle_sound.collidepoint(pos):
-                self.sound_enabled = not self.sound_enabled 
-                self.play_sound('click')
+            if self.btn_back.collidepoint(pos): self.play_sound('click'); self.app_state = self.previous_state 
+            elif self.btn_sound_l.collidepoint(pos) or self.btn_sound_r.collidepoint(pos):
+                self.sound_enabled = not self.sound_enabled; self.play_sound('click')
+            elif self.btn_theme_l.collidepoint(pos): self.play_sound('click'); self.current_theme_idx = (self.current_theme_idx - 1) % len(self.themes); self.apply_theme()
+            elif self.btn_theme_r.collidepoint(pos): self.play_sound('click'); self.current_theme_idx = (self.current_theme_idx + 1) % len(self.themes); self.apply_theme()
                 
         elif self.app_state == 'GAME_OVER':
-            if self.btn_back_menu.collidepoint(pos):
-                self.play_sound('click')
-                self.app_state = 'MENU'
+            if self.btn_back_menu.collidepoint(pos): self.play_sound('click'); self.app_state = 'MENU'
+            elif self.btn_play_again.collidepoint(pos):
+                self.play_sound('click'); self.GameState = models.create_initial_state(self.GameState.rows, self.GameState.cols)
+                self.selected_dot = None; self.floating_texts.clear(); self.history_undo_info.clear(); self.app_state = 'GAME'
                 
         elif self.app_state == 'GAME':
-            x, y = pos
-            
-            if self.btn_in_game_exit.collidepoint(pos):
-                self.play_sound('click')
-                self.app_state = 'MENU'
-                return
-            elif self.btn_in_game_settings.collidepoint(pos):
-                self.play_sound('click')
-                self.previous_state = 'GAME' 
-                self.app_state = 'SETTINGS'
-                return
-            elif self.btn_in_game_help.collidepoint(pos):
-                self.play_sound('click')
-                self.show_tutorial = True
-                return
+            if self.btn_in_game_exit.collidepoint(pos): self.play_sound('click'); self.app_state = 'MENU'; return
+            elif self.btn_in_game_settings.collidepoint(pos): self.play_sound('click'); self.previous_state = 'GAME'; self.app_state = 'SETTINGS'; return
+            elif self.btn_in_game_help.collidepoint(pos): self.play_sound('click'); self.show_tutorial = True; return
             elif self.btn_undo.collidepoint(pos):
                 self.play_sound('click')
                 if len(self.GameState.last_move) > 0:
-                    last_m = self.GameState.last_move[-1]
-                    last_info = self.history_undo_info.pop()
-                    rules.undo_move(self.GameState, last_m, last_info)
-                    self.selected_dot = None
-                    self.floating_texts.clear()
+                    last_m = self.GameState.last_move[-1]; last_i = self.history_undo_info.pop()
+                    rules.undo_move(self.GameState, last_m, last_i)
+                    self.selected_dot = None; self.floating_texts.clear()
                 return
 
             hit_dot = None
             for i in range(self.size):
                 for j in range(self.size):
                     cx, cy = self.margin_left + j * self.edge, self.margin_up + i * self.edge
-                    if math.hypot(x - cx, y - cy) <= 18:
-                        hit_dot = (i, j)
-                        break
+                    if math.hypot(pos[0] - cx, pos[1] - cy) <= 18: hit_dot = (i, j); break
             
             if hit_dot:
                 self.play_sound('click')
                 if self.selected_dot is None: self.selected_dot = hit_dot 
                 elif self.selected_dot == hit_dot: self.selected_dot = None 
                 else:
-                    r1, c1 = self.selected_dot
-                    r2, c2 = hit_dot
+                    r1, c1 = self.selected_dot; r2, c2 = hit_dot
                     dr, dc = abs(r2 - r1), abs(c2 - c1)
-                    
                     if dr + dc == 1: 
                         if dr == 0: move = models.Move('H', r1, min(c1, c2))
                         else:       move = models.Move('V', min(r1, r2), c1)
-                            
                         if rules.is_valid_move(self.GameState, move):
-                            player_before = self.GameState.current_player
-                            
-                            undo_info = rules.apply_move(self.GameState, move)
-                            self.history_undo_info.append(undo_info) 
-                            
-                            if undo_info['completed_boxes']:
-                                self.play_sound('capture')
-                                color = self.P1_COLOR if player_before == 1 else self.P2_COLOR
-                                
-                                if player_before == 1:
-                                    self.p1_shake_timer = 20 
-                                else:
-                                    self.p2_shake_timer = 20
-                                
-                                for box_r, box_c in undo_info['completed_boxes']:
+                            player_b = self.GameState.current_player
+                            info = rules.apply_move(self.GameState, move)
+                            self.history_undo_info.append(info) 
+                            if info['completed_boxes']:
+                                self.play_sound('capture'); color = self.P1_COLOR if player_b == 1 else self.P2_COLOR
+                                if player_b == 1: self.p1_shake_timer = 20 
+                                else: self.p2_shake_timer = 20
+                                for box_r, box_c in info['completed_boxes']:
                                     fx = self.margin_left + box_c * self.edge + self.edge // 2 - 15
                                     fy = self.margin_up + box_r * self.edge + self.edge // 2 - 15
                                     self.floating_texts.append({'x': fx, 'y': fy, 'text': '+1', 'color': color, 'timer': 60})
-                                    
                         self.selected_dot = None 
-                    else:
-                        self.selected_dot = hit_dot 
+                    else: self.selected_dot = hit_dot 
 
-    # ==========================================
-    # PHẦN 4: VÒNG LẶP CHÍNH
-    # ==========================================
     def run_game(self):
         while True:
             if self.p1_shake_timer > 0: self.p1_shake_timer -= 1
             if self.p2_shake_timer > 0: self.p2_shake_timer -= 1
-
             if self.app_state == 'GAME' and self.GameState.moves_remaining == 0:
-                self.play_sound('win') 
-                self.app_state = 'GAME_OVER'
-                
+                self.play_sound('win'); self.app_state = 'GAME_OVER'
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    self.handle_click(event.pos)
+                if event.type == pygame.QUIT: pygame.quit(); sys.exit()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: self.handle_click(event.pos)
 
             if self.app_state == 'MENU': self.render_menu()
             elif self.app_state == 'SETTINGS': self.render_settings()
             elif self.app_state == 'GAME': self.render_game()
             elif self.app_state == 'GAME_OVER': self.render_game_over()
-
-            pygame.display.flip()
-            self.clock.tick(60)
+            pygame.display.flip(); self.clock.tick(60)
