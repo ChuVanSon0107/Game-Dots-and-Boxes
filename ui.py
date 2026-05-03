@@ -2,6 +2,7 @@ import pygame
 import sys
 import math
 import os
+import random
 import rules
 import models
 
@@ -26,24 +27,24 @@ class UI:
                 'bg_top': (220, 240, 245), 'bg_bot': (250, 240, 230),
                 'board_bg': None, 
                 'text_main': (70, 70, 70), 'text_score': (80, 80, 80),
-                'p1': (45, 212, 235), 'p2': (255, 65, 84), # P1 Cyan, P2 Red
+                'p1': (45, 212, 235), 'p2': (255, 65, 84), 
                 'dot_core': (255, 255, 255), 'dot_out': (200, 190, 180),
                 'line_empty': (220, 210, 200), 'line_fill': (100, 100, 100)
             },
             {
                 'name': 'Dark Night',
                 'use_bg_image': False,
-                'bg_top': (40, 45, 50), 'bg_bot': (15, 20, 25),
+                'bg_top': (20, 25, 35), 'bg_bot': (10, 15, 20), # Nền trời đêm tối hơn
                 'board_bg': (30, 30, 35), 
                 'text_main': (230, 230, 230), 'text_score': (200, 200, 200),
-                'p1': (255, 180, 0), 'p2': (0, 200, 255), # P1 Gold, P2 Blue
+                'p1': (255, 180, 0), 'p2': (0, 200, 255), 
                 'dot_core': (60, 60, 65), 'dot_out': (255, 180, 0),
                 'line_empty': (50, 50, 55), 'line_fill': (200, 200, 200)
             },
             {
                 'name': 'Snow White',
                 'use_bg_image': False,
-                'bg_top': (245, 245, 245), 'bg_bot': (230, 230, 230),
+                'bg_top': (200, 220, 240), 'bg_bot': (230, 240, 250), # Nền trời mùa đông
                 'board_bg': (255, 255, 255), 
                 'text_main': (50, 50, 50), 'text_score': (100, 100, 100),
                 'p1': (230, 50, 70), 'p2': (50, 100, 230), 
@@ -99,6 +100,14 @@ class UI:
         self.p1_shake_timer = 0
         self.p2_shake_timer = 0
 
+        # --- TẠO SẴN DỮ LIỆU PARTICLE CHO CÁC THEME ---
+        # 1. Dark Night: Tạo 60 vì sao (x, y, radius)
+        self.stars = [(random.randint(0, self.W), random.randint(0, self.H), random.randint(1, 3)) for _ in range(60)]
+        # 2. Snow White: Tạo 80 bông tuyết (x, y, radius, speed)
+        self.snowflakes = [[random.randint(0, self.W), random.randint(0, self.H), random.uniform(2, 4), random.uniform(1, 2.5)] for _ in range(80)]
+        # 3. Classic Wood: Tạo 30 chiếc lá rơi (x, y)
+        self.leaves = [[random.randint(0, self.W), random.randint(0, self.H)] for _ in range(30)]
+
     def apply_theme(self):
         t = self.themes[self.current_theme_idx]
         self.P1_COLOR = t['p1']
@@ -145,11 +154,9 @@ class UI:
         return base_rect
 
     def _draw_setting_selector(self, label, value_text, y_pos):
-        # Label Title
         label_surf = self.font_turn.render(label, True, self.TEXT_MAIN)
         self.screen.blit(label_surf, (self.W // 2 - label_surf.get_width() // 2, y_pos - 45))
 
-        # Main White Box
         box_w, box_h = 340, 56
         box_rect = pygame.Rect(0, 0, box_w, box_h)
         box_rect.center = (self.W // 2, y_pos + 15)
@@ -160,22 +167,26 @@ class UI:
         pygame.draw.rect(self.screen, s_color, shadow_rect, border_radius=15)
         pygame.draw.rect(self.screen, (255, 255, 255), box_rect, border_radius=15)
 
-        # Value Text
         val_surf = self.font_turn.render(value_text, True, (50, 50, 50))
         self.screen.blit(val_surf, (self.W // 2 - val_surf.get_width() // 2, y_pos + 15 - val_surf.get_height() // 2))
 
-        # Arrow Buttons
         cyan_color = (0, 190, 200) 
         l_btn = self._draw_enhanced_button("<", self.W // 2 - box_w // 2 + 10, y_pos + 15, 55, 55, cyan_color, (255, 255, 255))
         r_btn = self._draw_enhanced_button(">", self.W // 2 + box_w // 2 - 10, y_pos + 15, 55, 55, cyan_color, (255, 255, 255))
         return l_btn, r_btn
 
+    # ==========================================
+    # HỆ THỐNG VẼ BACKGROUND THEO THEME MỚI CỰC CHẤT
+    # ==========================================
     def _draw_background(self):
         t = self.themes[self.current_theme_idx]
+        theme_name = t['name']
+
+        # 1. Vẽ phông nền cơ bản (Gradient hoặc Ảnh)
         if t['use_bg_image'] and self.bg_image:
             self.screen.blit(self.bg_image, (0, 0))
             overlay = pygame.Surface((self.W, self.H))
-            overlay.set_alpha(120)
+            overlay.set_alpha(150)
             overlay.fill((255, 255, 255))
             self.screen.blit(overlay, (0, 0))
         else:
@@ -185,6 +196,64 @@ class UI:
                 g = top_c[1] + (bot_c[1] - top_c[1]) * y // self.H
                 b = top_c[2] + (bot_c[2] - top_c[2]) * y // self.H
                 pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
+
+        # 2. VẼ CHI TIẾT ĐỒ HỌA TRANG TRÍ DỰA VÀO THEME HIỆN TẠI
+        if theme_name == 'Classic Wood':
+            # Vẽ Bãi cỏ mờ ở phía dưới
+            pygame.draw.rect(self.screen, (130, 180, 110), (0, self.H - 50, self.W, 50))
+            
+            # Vẽ một vài khóm hoa
+            for fx in [100, 250, 450, 600, 750]:
+                # Thân cây
+                pygame.draw.line(self.screen, (90, 150, 70), (fx, self.H - 50), (fx, self.H - 70), 4)
+                # Cánh hoa màu hồng
+                for dx, dy in [(-6, -4), (6, -4), (0, -10), (0, 2)]:
+                    pygame.draw.circle(self.screen, (255, 150, 180), (fx + dx, self.H - 70 + dy), 6)
+                # Nhụy hoa màu vàng
+                pygame.draw.circle(self.screen, (255, 220, 50), (fx, self.H - 70), 5)
+                
+            # Hiệu ứng Lá rơi đung đưa
+            for leaf in self.leaves:
+                pygame.draw.ellipse(self.screen, (150, 200, 100), (leaf[0], int(leaf[1]), 12, 8))
+                leaf[1] += 0.8 # Tốc độ rơi
+                leaf[0] += math.sin(leaf[1] * 0.05) * 1.5 # Đung đưa ngang
+                if leaf[1] > self.H: # Chạm đáy thì rớt lại từ trên đỉnh
+                    leaf[1] = -10
+                    leaf[0] = random.randint(0, self.W)
+
+        elif theme_name == 'Dark Night':
+            # Vẽ các vì sao rải rác
+            for star in self.stars:
+                pygame.draw.circle(self.screen, (255, 255, 220), (star[0], star[1]), star[2])
+                
+            # Vẽ Mặt trăng sáng rực ở góc trên bên phải
+            pygame.draw.circle(self.screen, (255, 255, 200), (self.W - 100, 100), 45)
+            pygame.draw.circle(self.screen, (255, 255, 230), (self.W - 100, 100), 35)
+
+        elif theme_name == 'Snow White':
+            # Vẽ 3 ngọn núi tuyết nhấp nhô phía sau bàn cờ
+            pygame.draw.polygon(self.screen, (200, 210, 225), [(0, self.H), (200, self.H - 250), (450, self.H)])
+            pygame.draw.polygon(self.screen, (180, 190, 205), [(250, self.H), (500, self.H - 300), (800, self.H)])
+            pygame.draw.polygon(self.screen, (220, 230, 240), [(-50, self.H), (100, self.H - 150), (300, self.H)])
+            
+            # Vẽ Người tuyết dễ thương bên góc phải
+            sx, sy = 700, self.H - 30
+            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy), 40)       # Đáy
+            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy - 55), 30)  # Thân
+            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy - 100), 20) # Đầu
+            
+            pygame.draw.circle(self.screen, (0, 0, 0), (sx - 7, sy - 105), 3)    # Mắt trái
+            pygame.draw.circle(self.screen, (0, 0, 0), (sx + 7, sy - 105), 3)    # Mắt phải
+            pygame.draw.polygon(self.screen, (255, 140, 0), [(sx, sy - 100), (sx, sy - 95), (sx - 20, sy - 97)]) # Mũi cà rốt
+            
+            # Hiệu ứng Tuyết rơi
+            for snow in self.snowflakes:
+                pygame.draw.circle(self.screen, (255, 255, 255), (int(snow[0]), int(snow[1])), int(snow[2]))
+                snow[1] += snow[3] # Tốc độ rơi
+                snow[0] += math.sin(snow[1] * 0.02) * 0.8 # Lắc lư theo gió
+                if snow[1] > self.H:
+                    snow[1] = -10
+                    snow[0] = random.randint(0, self.W)
 
     # ==========================================
     # MODAL WINDOWS (TUTORIAL & GAME OVER)
@@ -292,11 +361,11 @@ class UI:
         off_y = math.sin(timer * 0.8) * 8 if timer > 0 else 0
         y += off_y
         pygame.draw.circle(self.screen, color, (x, y), 35)
-        if not is_bot: # Human icon
+        if not is_bot: 
             pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 5), 10, 3)
             pygame.draw.arc(self.screen, (255, 255, 255), (x - 18, y - 5, 36, 40), 0, math.pi, 3)
             pygame.draw.line(self.screen, (255, 255, 255), (x - 18, y + 15), (x + 18, y + 15), 3) 
-        else: # Robot icon
+        else: 
             pygame.draw.rect(self.screen, (255, 255, 255), (x - 15, y - 10, 30, 22), 3, border_radius=4)
             pygame.draw.circle(self.screen, (255, 255, 255), (x - 6, y - 2), 3) 
             pygame.draw.circle(self.screen, (255, 255, 255), (x + 6, y - 2), 3) 
