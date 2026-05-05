@@ -107,6 +107,7 @@ class UI:
         self.snowflakes = [[random.randint(0, self.W), random.randint(0, self.H), random.uniform(2, 4), random.uniform(1, 2.5)] for _ in range(80)]
         # 3. Classic Wood: Tạo 30 chiếc lá rơi (x, y)
         self.leaves = [[random.randint(0, self.W), random.randint(0, self.H)] for _ in range(30)]
+        self.anim_tick = 0
 
     def apply_theme(self):
         t = self.themes[self.current_theme_idx]
@@ -176,84 +177,371 @@ class UI:
         return l_btn, r_btn
 
     # ==========================================
-    # HỆ THỐNG VẼ BACKGROUND THEO THEME MỚI CỰC CHẤT
+    # BACKGROUND ENGINE - UPGRADED
     # ==========================================
+
     def _draw_background(self):
         t = self.themes[self.current_theme_idx]
         theme_name = t['name']
+        tick = getattr(self, 'anim_tick', 0)  # fallback nếu chưa thêm anim_tick
 
-        # 1. Vẽ phông nền cơ bản (Gradient hoặc Ảnh)
-        if t['use_bg_image'] and self.bg_image:
-            self.screen.blit(self.bg_image, (0, 0))
-            overlay = pygame.Surface((self.W, self.H))
-            overlay.set_alpha(150)
-            overlay.fill((255, 255, 255))
-            self.screen.blit(overlay, (0, 0))
+        # ============================================================
+        # THEME 1: CLASSIC WOOD – Buổi sáng đồng quê, cây cỏ hoa lá
+        # ============================================================
+        if theme_name == 'Classic Wood':
+            # -- Sky gradient: xanh nhạt trên, vàng cam phía chân trời --
+            sky_top    = (160, 210, 245)
+            sky_mid    = (255, 220, 160)
+            sky_ground = (140, 185, 100)
+            horizon_y  = int(self.H * 0.62)
+
+            for y in range(horizon_y):
+                ratio = y / horizon_y
+                r = int(sky_top[0] + (sky_mid[0] - sky_top[0]) * ratio)
+                g = int(sky_top[1] + (sky_mid[1] - sky_top[1]) * ratio)
+                b = int(sky_top[2] + (sky_mid[2] - sky_top[2]) * ratio)
+                pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
+
+            # -- Đất / bãi cỏ --
+            for y in range(horizon_y, self.H):
+                ratio = (y - horizon_y) / (self.H - horizon_y)
+                r = int(sky_ground[0] * (1 - ratio * 0.3))
+                g = int(sky_ground[1] * (1 - ratio * 0.2))
+                b = int(sky_ground[2] * (1 - ratio * 0.4))
+                pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
+
+            # -- Mặt trời ấm áp --
+            sun_x, sun_y = 90, 75
+            for ring in range(5, 0, -1):
+                alpha_surf = pygame.Surface((self.W, self.H), pygame.SRCALPHA)
+                pygame.draw.circle(alpha_surf, (255, 230, 100, 18 * ring), (sun_x, sun_y), 30 + ring * 12)
+                self.screen.blit(alpha_surf, (0, 0))
+            pygame.draw.circle(self.screen, (255, 240, 80), (sun_x, sun_y), 32)
+            pygame.draw.circle(self.screen, (255, 255, 200), (sun_x, sun_y), 22)
+
+            # Tia sáng mặt trời xoay theo tick
+            for i in range(8):
+                angle = math.radians(i * 45 + tick * 0.3)
+                x1 = sun_x + int(math.cos(angle) * 38)
+                y1 = sun_y + int(math.sin(angle) * 38)
+                x2 = sun_x + int(math.cos(angle) * 55)
+                y2 = sun_y + int(math.sin(angle) * 55)
+                pygame.draw.line(self.screen, (255, 220, 80), (x1, y1), (x2, y2), 3)
+
+            # -- Mây trắng bồng bềnh (di chuyển chậm) --
+            cloud_data = [(120, 80, 1.0), (350, 55, 0.7), (580, 95, 0.9), (710, 60, 0.6)]
+            for cx, cy, sc in cloud_data:
+                # offset di chuyển từng mây với tốc độ khác nhau
+                ox = int((tick * 0.18 * sc) % (self.W + 200)) - 100
+                for dx, dy, r in [(0, 0, 26), (28, -10, 22), (-28, -8, 20), (52, 2, 18), (-50, 4, 16)]:
+                    pygame.draw.circle(self.screen, (255, 255, 255), (cx + ox + dx, cy + dy), int(r * sc))
+
+            # -- Dãy cây xa xăm (silhouette) --
+            tree_xs = list(range(0, self.W + 40, 28))
+            for tx in tree_xs:
+                h_tree = 45 + int(math.sin(tx * 0.07) * 15)
+                ty = horizon_y - h_tree
+                col = (60 + int(math.sin(tx * 0.05) * 15), 130 + int(math.sin(tx * 0.04) * 20), 60)
+                pygame.draw.polygon(self.screen, col,
+                    [(tx, horizon_y), (tx + 14, horizon_y), (tx + 7, ty)])
+
+            # -- Hàng cỏ cao phía trước --
+            for gx in range(0, self.W, 9):
+                gy = self.H - random.randint(20, 45) if not hasattr(self, '_grass_h') else self.H - self._grass_cache[gx // 9 % len(self._grass_cache)]
+                sway = math.sin(tick * 0.04 + gx * 0.15) * 4
+                col = (50 + int(math.sin(gx * 0.1) * 20), 140 + int(math.sin(gx * 0.08) * 30), 50)
+                pygame.draw.line(self.screen, col,
+                    (gx, self.H), (gx + int(sway), self.H - 30), 2)
+
+            # -- Hoa đồng nội phía trước --
+            flower_spots = [80, 180, 310, 430, 560, 680, 760]
+            for fx in flower_spots:
+                fy = self.H - 32
+                stem_sway = math.sin(tick * 0.05 + fx * 0.1) * 3
+                # thân
+                pygame.draw.line(self.screen, (60, 130, 50),
+                    (fx, fy), (fx + int(stem_sway), fy - 22), 3)
+                # cánh hoa
+                petal_colors = [(255, 120, 170), (255, 200, 80), (180, 130, 255)]
+                pc = petal_colors[fx % len(petal_colors)]
+                head_x = fx + int(stem_sway)
+                head_y = fy - 22
+                for angle in range(0, 360, 60):
+                    px = head_x + int(math.cos(math.radians(angle + tick * 0.5)) * 7)
+                    py = head_y + int(math.sin(math.radians(angle + tick * 0.5)) * 7)
+                    pygame.draw.circle(self.screen, pc, (px, py), 5)
+                pygame.draw.circle(self.screen, (255, 240, 60), (head_x, head_y), 5)
+
+            # -- Lá rơi (cải tiến: hình ellipse xoay, màu sắc) --
+            leaf_colors = [(180, 220, 90), (220, 190, 70), (240, 150, 60), (160, 200, 80)]
+            for i, leaf in enumerate(self.leaves):
+                lc = leaf_colors[i % len(leaf_colors)]
+                lx, ly = int(leaf[0]), int(leaf[1])
+                angle = (tick * 2 + i * 17) % 360
+                # Vẽ hình lá đơn giản bằng ellipse
+                leaf_surf = pygame.Surface((16, 10), pygame.SRCALPHA)
+                pygame.draw.ellipse(leaf_surf, (*lc, 200), (0, 0, 16, 10))
+                rotated = pygame.transform.rotate(leaf_surf, angle)
+                self.screen.blit(rotated, (lx - 8, ly - 5))
+                leaf[1] += 0.7
+                leaf[0] += math.sin(leaf[1] * 0.04 + i) * 1.2
+                if leaf[1] > self.H:
+                    leaf[1] = -10
+                    leaf[0] = random.randint(0, self.W)
+
+        # ============================================================
+        # THEME 2: DARK NIGHT – Đêm huyền bí, thiên hà, trăng sáng
+        # ============================================================
+        elif theme_name == 'Dark Night':
+            # -- Sky gradient: đen tuyệt vời xuống tím sâu --
+            sky_top = (5, 5, 18)
+            sky_bot = (25, 12, 45)
+            for y in range(self.H):
+                ratio = y / self.H
+                r = int(sky_top[0] + (sky_bot[0] - sky_top[0]) * ratio)
+                g = int(sky_top[1] + (sky_bot[1] - sky_top[1]) * ratio)
+                b = int(sky_top[2] + (sky_bot[2] - sky_top[2]) * ratio)
+                pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
+
+            # -- Dải Ngân Hà mờ ảo (nhiều chấm nhỏ mờ tạo thành vệt) --
+            if not hasattr(self, '_milky_way'):
+                self._milky_way = [
+                    (random.randint(0, self.W),
+                     random.randint(0, int(self.H * 0.55)),
+                     random.randint(1, 2),
+                     random.randint(60, 150))
+                    for _ in range(180)
+                ]
+            for mx, my, mr, ma in self._milky_way:
+                mw_surf = pygame.Surface((mr*2+2, mr*2+2), pygame.SRCALPHA)
+                pygame.draw.circle(mw_surf, (200, 180, 255, ma), (mr+1, mr+1), mr)
+                self.screen.blit(mw_surf, (mx - mr, my - mr))
+
+            # -- Sao nhấp nháy (twinkle) --
+            for i, (sx, sy, sr) in enumerate(self.stars):
+                # Nhấp nháy: alpha dao động theo sin
+                twinkle = int(180 + math.sin(tick * 0.07 + i * 0.9) * 75)
+                star_surf = pygame.Surface((sr*4, sr*4), pygame.SRCALPHA)
+                # Glow mờ xung quanh
+                pygame.draw.circle(star_surf, (255, 255, 200, twinkle // 4), (sr*2, sr*2), sr*2)
+                # Lõi sao
+                pygame.draw.circle(star_surf, (255, 255, 230, twinkle), (sr*2, sr*2), sr)
+                self.screen.blit(star_surf, (sx - sr*2, sy - sr*2))
+
+            # -- Vài ngôi sao bắn qua (shooting star) --
+            if not hasattr(self, '_shooting_stars'):
+                self._shooting_stars = [
+                    [random.randint(0, self.W), random.randint(0, int(self.H * 0.4)),
+                     random.uniform(4, 8), random.randint(0, 300)]
+                    for _ in range(3)
+                ]
+            for ss in self._shooting_stars:
+                ss[3] -= 1
+                if ss[3] <= 0:
+                    ss[0] = random.randint(100, self.W)
+                    ss[1] = random.randint(10, int(self.H * 0.3))
+                    ss[3] = random.randint(180, 420)
+                trail_len = 45
+                tx_end = ss[0] - int(ss[2] * 5)
+                ty_end = ss[1] + int(ss[2] * 3)
+                for tl in range(trail_len, 0, -5):
+                    alpha = int(255 * tl / trail_len)
+                    prog = tl / trail_len
+                    tx = int(ss[0] - ss[2] * prog * 5)
+                    ty = int(ss[1] + ss[2] * prog * 3)
+                    ss_surf = pygame.Surface((4, 4), pygame.SRCALPHA)
+                    pygame.draw.circle(ss_surf, (255, 255, 255, alpha), (2, 2), 2)
+                    self.screen.blit(ss_surf, (tx, ty))
+
+            # -- Mặt Trăng rằm sáng rực --
+            moon_x, moon_y = self.W - 110, 100
+            moon_r = 50
+            # Ánh hào quang phát sáng (nhiều vòng mờ dần)
+            for glow in range(6, 0, -1):
+                g_surf = pygame.Surface((self.W, self.H), pygame.SRCALPHA)
+                pygame.draw.circle(g_surf, (255, 255, 200, 12 * glow), (moon_x, moon_y), moon_r + glow * 14)
+                self.screen.blit(g_surf, (0, 0))
+            # Thân trăng
+            pygame.draw.circle(self.screen, (255, 248, 200), (moon_x, moon_y), moon_r)
+            pygame.draw.circle(self.screen, (255, 255, 230), (moon_x, moon_y), moon_r - 8)
+            # Kết cấu bề mặt (crater nhỏ)
+            craters = [(-14, -10, 7), (12, 8, 5), (-5, 18, 4), (18, -18, 6), (-20, 12, 4)]
+            for cx, cy, cr in craters:
+                pygame.draw.circle(self.screen, (235, 228, 180), (moon_x + cx, moon_y + cy), cr)
+                pygame.draw.circle(self.screen, (200, 195, 150), (moon_x + cx, moon_y + cy), cr, 1)
+
+            # -- Đường chân trời: Cityscape tối --
+            building_data = [
+                (0, 100, 30), (35, 140, 45), (85, 90, 35), (125, 120, 40),
+                (170, 80, 28), (200, 110, 55), (260, 95, 38), (300, 130, 42),
+                (345, 85, 30), (380, 115, 50), (435, 100, 35), (470, 75, 28),
+                (500, 125, 45), (550, 90, 38), (595, 140, 55), (655, 80, 30),
+                (690, 110, 42), (735, 95, 35), (770, 130, 50),
+            ]
+            ground_y = self.H - 55
+            for bx, bh, bw in building_data:
+                # Tòa nhà tối
+                pygame.draw.rect(self.screen, (18, 20, 35),
+                    (bx, ground_y - bh, bw, bh))
+                # Cửa sổ phát sáng vàng/trắng ngẫu nhiên
+                for wy in range(ground_y - bh + 6, ground_y - 8, 14):
+                    for wx in range(bx + 4, bx + bw - 4, 10):
+                        seed = (bx * 7 + wx * 13 + wy * 3) % 100
+                        if seed > 45:
+                            wc = (255, 220, 100) if seed > 70 else (180, 210, 255)
+                            pygame.draw.rect(self.screen, wc, (wx, wy, 6, 8))
+            # Mặt đất
+            pygame.draw.rect(self.screen, (12, 14, 25), (0, ground_y, self.W, self.H - ground_y))
+            # Phản chiếu trên mặt đất
+            reflect_surf = pygame.Surface((self.W, 18), pygame.SRCALPHA)
+            pygame.draw.rect(reflect_surf, (255, 248, 200, 25), (self.W - 200, 0, 200, 18))
+            self.screen.blit(reflect_surf, (0, ground_y))
+
+        # ============================================================
+        # THEME 3: SNOW WHITE – Mùa đông, núi tuyết, người tuyết, bão tuyết
+        # ============================================================
+        elif theme_name == 'Snow White':
+            # -- Sky gradient: xanh nhạt trên, trắng xám đục phía dưới (trời흐림) --
+            sky_top = (170, 200, 230)
+            sky_bot = (220, 235, 248)
+            for y in range(self.H):
+                ratio = y / self.H
+                r = int(sky_top[0] + (sky_bot[0] - sky_top[0]) * ratio)
+                g = int(sky_top[1] + (sky_bot[1] - sky_top[1]) * ratio)
+                b = int(sky_top[2] + (sky_bot[2] - sky_top[2]) * ratio)
+                pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
+
+            # -- Đám mây nặng nề mang tuyết --
+            cloud_data = [(90, 45, 1.2), (280, 30, 1.0), (480, 55, 0.9), (680, 35, 1.1)]
+            for cx, cy, sc in cloud_data:
+                drift = int((tick * 0.1 * sc) % (self.W + 200)) - 100
+                base_col = (200, 210, 225)
+                for dx, dy, r in [(0, 0, 38), (40, -14, 32), (-40, -12, 28), (70, 4, 24), (-68, 6, 22), (20, -30, 26)]:
+                    pygame.draw.circle(self.screen, base_col, (cx + drift + dx, cy + dy), int(r * sc))
+
+            # -- Dãy núi tuyết nhiều lớp (xa -> gần, sáng dần) --
+            mountain_layers = [
+                # (list_of_peaks, color)
+                ([(0,self.H),(150,self.H-220),(320,self.H-180),(490,self.H-260),(650,self.H-200),(800,self.H-170),(800,self.H)], (170,185,210)),
+                ([(0,self.H),(100,self.H-160),(260,self.H-200),(420,self.H-155),(580,self.H-210),(740,self.H-160),(800,self.H)], (190,205,225)),
+                ([(0,self.H),(-50,self.H-130),(120,self.H-170),(300,self.H-120),(480,self.H-175),(660,self.H-140),(850,self.H-110),(800,self.H)], (210,222,238)),
+            ]
+            for pts, col in mountain_layers:
+                pygame.draw.polygon(self.screen, col, pts)
+                # Mũ tuyết trên đỉnh núi
+                snow_col = (240, 248, 255)
+                for i in range(1, len(pts) - 2):
+                    px, py = pts[i]
+                    if py < self.H - 100:
+                        snow_pts = [(px - 25, py + 35), (px, py - 10), (px + 25, py + 35)]
+                        pygame.draw.polygon(self.screen, snow_col, snow_pts)
+
+            # -- Mặt đất tuyết trắng gợn sóng --
+            ground_y = self.H - 70
+            snow_ground = []
+            for gx in range(0, self.W + 10, 10):
+                gy = ground_y + int(math.sin(gx * 0.03 + tick * 0.01) * 6)
+                snow_ground.append((gx, gy))
+            snow_ground += [(self.W, self.H), (0, self.H)]
+            pygame.draw.polygon(self.screen, (240, 248, 255), snow_ground)
+            # Viền tuyết nhẹ (bóng đổ mờ)
+            pygame.draw.polygon(self.screen, (210, 225, 245), snow_ground, 3)
+
+            # -- Cây thông phủ tuyết --
+            pine_xs = [60, 190, 590, 730]
+            for px_tree in pine_xs:
+                py_base = ground_y
+                trunk_col = (100, 70, 50)
+                # Thân
+                pygame.draw.rect(self.screen, trunk_col, (px_tree - 5, py_base - 18, 10, 20))
+                # 3 lớp cành (từ dưới lên)
+                for layer, (lw, lh, ly_off) in enumerate([(54, 28, -18), (44, 24, -42), (30, 20, -62)]):
+                    pine_col = (50 + layer * 15, 100 + layer * 10, 60 + layer * 10)
+                    pts = [(px_tree - lw//2, py_base + ly_off + lh),
+                           (px_tree, py_base + ly_off),
+                           (px_tree + lw//2, py_base + ly_off + lh)]
+                    pygame.draw.polygon(self.screen, pine_col, pts)
+                    # Tuyết trên cành
+                    snow_pts = [(px_tree - lw//2 + 4, py_base + ly_off + lh - 4),
+                                (px_tree, py_base + ly_off + 4),
+                                (px_tree + lw//2 - 4, py_base + ly_off + lh - 4)]
+                    snow_surf = pygame.Surface((lw + 10, lh + 10), pygame.SRCALPHA)
+                    pygame.draw.polygon(self.screen, (240, 248, 255), snow_pts)
+
+            # -- Người tuyết dễ thương (cải tiến) --
+            sx, sy = 680, ground_y - 5
+            # Bóng
+            pygame.draw.ellipse(self.screen, (200, 215, 235), (sx - 42, sy - 8, 84, 16))
+            # Thân dưới
+            pygame.draw.circle(self.screen, (245, 252, 255), (sx, sy - 38), 38)
+            pygame.draw.circle(self.screen, (230, 240, 255), (sx, sy - 38), 38, 2)
+            # Thân giữa
+            pygame.draw.circle(self.screen, (248, 254, 255), (sx, sy - 88), 28)
+            pygame.draw.circle(self.screen, (220, 235, 250), (sx, sy - 88), 28, 2)
+            # Đầu
+            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy - 128), 22)
+            pygame.draw.circle(self.screen, (215, 230, 248), (sx, sy - 128), 22, 2)
+            # Mắt
+            pygame.draw.circle(self.screen, (30, 30, 30), (sx - 8, sy - 134), 4)
+            pygame.draw.circle(self.screen, (30, 30, 30), (sx + 8, sy - 134), 4)
+            pygame.draw.circle(self.screen, (255, 255, 255), (sx - 7, sy - 135), 2)
+            pygame.draw.circle(self.screen, (255, 255, 255), (sx + 9, sy - 135), 2)
+            # Mũi cà rốt
+            pygame.draw.polygon(self.screen, (255, 120, 20),
+                [(sx, sy - 128), (sx - 3, sy - 125), (sx - 20, sy - 127), (sx - 3, sy - 130)])
+            # Miệng cười (chấm)
+            for mi in range(-3, 4, 2):
+                pygame.draw.circle(self.screen, (40, 40, 40), (sx + mi * 3, sy - 118 + abs(mi)), 2)
+            # Nút cúc áo
+            for btn_y in [sy - 82, sy - 70, sy - 58]:
+                pygame.draw.circle(self.screen, (80, 80, 100), (sx, btn_y), 3)
+            # Tay (cành cây)
+            pygame.draw.line(self.screen, (100, 70, 50), (sx - 28, sy - 90), (sx - 58, sy - 75), 4)
+            pygame.draw.line(self.screen, (100, 70, 50), (sx - 58, sy - 75), (sx - 70, sy - 62), 3)
+            pygame.draw.line(self.screen, (100, 70, 50), (sx - 58, sy - 75), (sx - 68, sy - 85), 3)
+            pygame.draw.line(self.screen, (100, 70, 50), (sx + 28, sy - 90), (sx + 58, sy - 75), 4)
+            pygame.draw.line(self.screen, (100, 70, 50), (sx + 58, sy - 75), (sx + 70, sy - 62), 3)
+            pygame.draw.line(self.screen, (100, 70, 50), (sx + 58, sy - 75), (sx + 68, sy - 85), 3)
+            # Mũ
+            pygame.draw.rect(self.screen, (30, 30, 30), (sx - 28, sy - 152, 56, 8), border_radius=3)
+            pygame.draw.rect(self.screen, (30, 30, 30), (sx - 18, sy - 174, 36, 26), border_radius=4)
+            # Khăn quàng
+            scarf_col = (220, 50, 60)
+            scarf_surf = pygame.Surface((60, 12), pygame.SRCALPHA)
+            pygame.draw.rect(scarf_surf, (*scarf_col, 220), (0, 0, 60, 12), border_radius=4)
+            self.screen.blit(scarf_surf, (sx - 30, sy - 112))
+            pygame.draw.rect(self.screen, scarf_col, (sx - 22, sy - 108, 10, 18), border_radius=3)
+
+            # -- Bông tuyết rơi (cải tiến: hình bông 6 cánh) --
+            for i, snow in enumerate(self.snowflakes):
+                sx2, sy2 = int(snow[0]), int(snow[1])
+                sr2 = int(snow[2])
+                # Bông tuyết nhỏ vẽ bằng đường thẳng chéo
+                sn_surf = pygame.Surface((sr2*6+2, sr2*6+2), pygame.SRCALPHA)
+                scx, scy = sr2*3+1, sr2*3+1
+                alpha_snow = 220
+                for angle in range(0, 180, 60):
+                    rad = math.radians(angle)
+                    ex = int(math.cos(rad) * sr2 * 3)
+                    ey = int(math.sin(rad) * sr2 * 3)
+                    pygame.draw.line(sn_surf, (255, 255, 255, alpha_snow),
+                        (scx - ex, scy - ey), (scx + ex, scy + ey), max(1, sr2 - 1))
+                self.screen.blit(sn_surf, (sx2 - sr2*3, sy2 - sr2*3))
+
+                snow[1] += snow[3] * 0.8
+                snow[0] += math.sin(snow[1] * 0.02 + i) * 1.2
+                if snow[1] > self.H:
+                    snow[1] = -10
+                    snow[0] = random.randint(0, self.W)
+
         else:
+            # Fallback gradient đơn giản
             top_c, bot_c = t['bg_top'], t['bg_bot']
             for y in range(self.H):
                 r = top_c[0] + (bot_c[0] - top_c[0]) * y // self.H
                 g = top_c[1] + (bot_c[1] - top_c[1]) * y // self.H
                 b = top_c[2] + (bot_c[2] - top_c[2]) * y // self.H
                 pygame.draw.line(self.screen, (r, g, b), (0, y), (self.W, y))
-
-        # 2. VẼ CHI TIẾT ĐỒ HỌA TRANG TRÍ DỰA VÀO THEME HIỆN TẠI
-        if theme_name == 'Classic Wood':
-            # Vẽ Bãi cỏ mờ ở phía dưới
-            pygame.draw.rect(self.screen, (130, 180, 110), (0, self.H - 50, self.W, 50))
-            
-            # Vẽ một vài khóm hoa
-            for fx in [100, 250, 450, 600, 750]:
-                # Thân cây
-                pygame.draw.line(self.screen, (90, 150, 70), (fx, self.H - 50), (fx, self.H - 70), 4)
-                # Cánh hoa màu hồng
-                for dx, dy in [(-6, -4), (6, -4), (0, -10), (0, 2)]:
-                    pygame.draw.circle(self.screen, (255, 150, 180), (fx + dx, self.H - 70 + dy), 6)
-                # Nhụy hoa màu vàng
-                pygame.draw.circle(self.screen, (255, 220, 50), (fx, self.H - 70), 5)
-                
-            # Hiệu ứng Lá rơi đung đưa
-            for leaf in self.leaves:
-                pygame.draw.ellipse(self.screen, (150, 200, 100), (leaf[0], int(leaf[1]), 12, 8))
-                leaf[1] += 0.8 # Tốc độ rơi
-                leaf[0] += math.sin(leaf[1] * 0.05) * 1.5 # Đung đưa ngang
-                if leaf[1] > self.H: # Chạm đáy thì rớt lại từ trên đỉnh
-                    leaf[1] = -10
-                    leaf[0] = random.randint(0, self.W)
-
-        elif theme_name == 'Dark Night':
-            # Vẽ các vì sao rải rác
-            for star in self.stars:
-                pygame.draw.circle(self.screen, (255, 255, 220), (star[0], star[1]), star[2])
-                
-            # Vẽ Mặt trăng sáng rực ở góc trên bên phải
-            pygame.draw.circle(self.screen, (255, 255, 200), (self.W - 100, 100), 45)
-            pygame.draw.circle(self.screen, (255, 255, 230), (self.W - 100, 100), 35)
-
-        elif theme_name == 'Snow White':
-            # Vẽ 3 ngọn núi tuyết nhấp nhô phía sau bàn cờ
-            pygame.draw.polygon(self.screen, (200, 210, 225), [(0, self.H), (200, self.H - 250), (450, self.H)])
-            pygame.draw.polygon(self.screen, (180, 190, 205), [(250, self.H), (500, self.H - 300), (800, self.H)])
-            pygame.draw.polygon(self.screen, (220, 230, 240), [(-50, self.H), (100, self.H - 150), (300, self.H)])
-            
-            # Vẽ Người tuyết dễ thương bên góc phải
-            sx, sy = 700, self.H - 30
-            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy), 40)       # Đáy
-            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy - 55), 30)  # Thân
-            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy - 100), 20) # Đầu
-            
-            pygame.draw.circle(self.screen, (0, 0, 0), (sx - 7, sy - 105), 3)    # Mắt trái
-            pygame.draw.circle(self.screen, (0, 0, 0), (sx + 7, sy - 105), 3)    # Mắt phải
-            pygame.draw.polygon(self.screen, (255, 140, 0), [(sx, sy - 100), (sx, sy - 95), (sx - 20, sy - 97)]) # Mũi cà rốt
-            
-            # Hiệu ứng Tuyết rơi
-            for snow in self.snowflakes:
-                pygame.draw.circle(self.screen, (255, 255, 255), (int(snow[0]), int(snow[1])), int(snow[2]))
-                snow[1] += snow[3] # Tốc độ rơi
-                snow[0] += math.sin(snow[1] * 0.02) * 0.8 # Lắc lư theo gió
-                if snow[1] > self.H:
-                    snow[1] = -10
-                    snow[0] = random.randint(0, self.W)
 
     # ==========================================
     # MODAL WINDOWS (TUTORIAL & GAME OVER)
@@ -542,6 +830,7 @@ class UI:
 
     def run_game(self):
         while True:
+            self.anim_tick += 1
             if self.p1_shake_timer > 0: self.p1_shake_timer -= 1
             if self.p2_shake_timer > 0: self.p2_shake_timer -= 1
             if self.app_state == 'GAME' and self.GameState.moves_remaining == 0:
