@@ -91,8 +91,9 @@ class UI:
         self.GameState = GameState
 
         # --- AI BOT STATE ---
-        self.ai_player = 2              # AI là Player 2
-        self.ai_delay_ms = 300          # Delay trước khi AI đi (ms) – để người chơi thấy
+        self.bot_goes_first = False      # Bot đi trước?
+        self.ai_player = 2              # AI là Player mấy (1 hoặc 2)
+        self.ai_delay_ms = 300          # Delay trước khi AI đi (ms)
         self.ai_thinking = False        # AI đang "suy nghĩ"?
         self.ai_think_start = 0         # Thời điểm bắt đầu thinking
         self.ai_move_pending = None     # Nước đi AI đã tính xong, chờ apply
@@ -624,12 +625,15 @@ class UI:
             pygame.draw.rect(self.screen, m_bg, modal_rect, border_radius=25)
 
             res = rules.get_winner(self.GameState)
-            if res == 1:
-                title, win_c, detail = "VICTORY!", self.P1_COLOR, "You won the game!"
-            elif res == 2:
-                title, win_c, detail = "DEFEAT!", self.P2_COLOR, "Bot won the game!"
-            else:
+            human_player = 3 - self.ai_player  # Player number of human
+            if res == 0:
                 title, win_c, detail = "DRAW!", self.TEXT_MAIN, "It's a tie game!"
+            elif res == human_player:
+                human_c = self.P1_COLOR if human_player == 1 else self.P2_COLOR
+                title, win_c, detail = "VICTORY!", human_c, "You won the game!"
+            else:
+                bot_c = self.P1_COLOR if self.ai_player == 1 else self.P2_COLOR
+                title, win_c, detail = "DEFEAT!", bot_c, "Bot won the game!"
                 
             pygame.draw.rect(self.screen, win_c, modal_rect, width=5, border_radius=25)
 
@@ -667,12 +671,15 @@ class UI:
         self.screen.blit(title, (self.W // 2 - title.get_width() // 2, 60))
         
         sound_val = "ON" if self.sound_enabled else "OFF"
-        self.btn_sound_l, self.btn_sound_r = self._draw_setting_selector("Sound", sound_val, 190)
+        self.btn_sound_l, self.btn_sound_r = self._draw_setting_selector("Sound", sound_val, 180)
         
         theme_val = self.themes[self.current_theme_idx]['name']
-        self.btn_theme_l, self.btn_theme_r = self._draw_setting_selector("Theme", theme_val, 330)
+        self.btn_theme_l, self.btn_theme_r = self._draw_setting_selector("Theme", theme_val, 300)
         
-        self.btn_back = self._draw_enhanced_button("Back", self.W // 2, 470, 300, 60, (150, 150, 150), (255, 255, 255))
+        first_val = "Bot" if self.bot_goes_first else "You"
+        self.btn_first_l, self.btn_first_r = self._draw_setting_selector("First Move", first_val, 420)
+        
+        self.btn_back = self._draw_enhanced_button("Back", self.W // 2, 550, 300, 60, (150, 150, 150), (255, 255, 255))
 
     def _draw_avatar(self, x, y, color, is_bot, timer):
         off_y = math.sin(timer * 0.8) * 8 if timer > 0 else 0
@@ -689,40 +696,51 @@ class UI:
             pygame.draw.line(self.screen, (255, 255, 255), (x, y - 10), (x, y - 18), 2) 
             pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 18), 3) 
 
+    def _is_bot(self, player_num):
+        """Kiểm tra player_num có phải bot không."""
+        return player_num == self.ai_player
+
+    def _player_label(self, player_num):
+        """Trả về nhãn cho player."""
+        return "Bot" if self._is_bot(player_num) else "You"
+
     def _draw_header(self):
+        cur = self.GameState.current_player
         if self.ai_thinking:
             turn_txt = "Bot is thinking..."
-            turn_c = self.P2_COLOR
-            # Hiệu ứng nhấp nháy cho text "thinking"
+            turn_c = self.P1_COLOR if self.ai_player == 1 else self.P2_COLOR
             alpha = int(180 + math.sin(self.anim_tick * 0.15) * 75)
             turn_s = self.font_turn.render(turn_txt, True, turn_c)
             turn_s.set_alpha(alpha)
         else:
-            turn_txt = "Turn: P1 (You)" if self.GameState.current_player == 1 else "Turn: P2 (Bot)"
-            turn_c = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
+            label = self._player_label(cur)
+            turn_txt = f"Turn: P{cur} ({label})"
+            turn_c = self.P1_COLOR if cur == 1 else self.P2_COLOR
             turn_s = self.font_turn.render(turn_txt, True, turn_c)
         self.screen.blit(turn_s, (self.W // 2 - turn_s.get_width() // 2, 40))
 
         # P1 Header
         p1_x, p1_y = 80, 50
-        self._draw_avatar(p1_x, p1_y, self.P1_COLOR, False, self.p1_shake_timer)
+        p1_is_bot = self._is_bot(1)
+        self._draw_avatar(p1_x, p1_y, self.P1_COLOR, p1_is_bot, self.p1_shake_timer)
         s1_x = p1_x + 55
         pygame.draw.circle(self.screen, (255, 255, 255), (s1_x, p1_y), 28)
         pygame.draw.circle(self.screen, (200, 200, 200), (s1_x, p1_y), 28, 1) 
         sc1 = self.font_score.render(str(self.GameState.score_player1), True, self.P1_COLOR)
         self.screen.blit(sc1, (s1_x - sc1.get_width()//2, p1_y - sc1.get_height()//2))
-        if self.GameState.current_player == 1:
+        if cur == 1:
             pygame.draw.line(self.screen, self.P1_COLOR, (p1_x - 30, p1_y + 45), (p1_x + 30, p1_y + 45), 4)
 
         # P2 Header
         p2_x, p2_y = self.W - 80, 50
-        self._draw_avatar(p2_x, p2_y, self.P2_COLOR, True, self.p2_shake_timer)
+        p2_is_bot = self._is_bot(2)
+        self._draw_avatar(p2_x, p2_y, self.P2_COLOR, p2_is_bot, self.p2_shake_timer)
         s2_x = p2_x - 55
         pygame.draw.circle(self.screen, (255, 255, 255), (s2_x, p2_y), 28)
         pygame.draw.circle(self.screen, (200, 200, 200), (s2_x, p2_y), 28, 1)
         sc2 = self.font_score.render(str(self.GameState.score_player2), True, self.P2_COLOR)
         self.screen.blit(sc2, (s2_x - sc2.get_width()//2, p2_y - sc2.get_height()//2))
-        if self.GameState.current_player == 2:
+        if cur == 2:
             pygame.draw.line(self.screen, self.P2_COLOR, (p2_x - 30, p2_y + 45), (p2_x + 30, p2_y + 45), 4)
 
     def _draw_lines_and_boxes(self):
@@ -806,6 +824,8 @@ class UI:
         if self.app_state == 'MENU':
             if self.btn_play.collidepoint(pos): 
                 self.play_sound('click'); self.GameState = models.create_initial_state(self.GameState.rows, self.GameState.cols)
+                self.ai_player = 1 if self.bot_goes_first else 2
+                self.ai_thinking = False; self.ai_move_pending = None; self.ai_thread = None
                 self.selected_dot = None; self.floating_texts.clear(); self.history_undo_info.clear(); self.app_state = 'GAME'
             elif self.btn_tutorial.collidepoint(pos): self.play_sound('click'); self.show_tutorial = True
             elif self.btn_settings.collidepoint(pos): self.play_sound('click'); self.previous_state = 'MENU'; self.app_state = 'SETTINGS'
@@ -817,11 +837,15 @@ class UI:
                 self.sound_enabled = not self.sound_enabled; self.play_sound('click')
             elif self.btn_theme_l.collidepoint(pos): self.play_sound('click'); self.current_theme_idx = (self.current_theme_idx - 1) % len(self.themes); self.apply_theme()
             elif self.btn_theme_r.collidepoint(pos): self.play_sound('click'); self.current_theme_idx = (self.current_theme_idx + 1) % len(self.themes); self.apply_theme()
+            elif self.btn_first_l.collidepoint(pos) or self.btn_first_r.collidepoint(pos):
+                self.play_sound('click'); self.bot_goes_first = not self.bot_goes_first
                 
         elif self.app_state == 'GAME_OVER':
             if self.btn_back_menu.collidepoint(pos): self.play_sound('click'); self.app_state = 'MENU'
             elif self.btn_play_again.collidepoint(pos):
                 self.play_sound('click'); self.GameState = models.create_initial_state(self.GameState.rows, self.GameState.cols)
+                self.ai_player = 1 if self.bot_goes_first else 2
+                self.ai_thinking = False; self.ai_move_pending = None; self.ai_thread = None
                 self.selected_dot = None; self.floating_texts.clear(); self.history_undo_info.clear(); self.app_state = 'GAME'
                 
         elif self.app_state == 'GAME':
