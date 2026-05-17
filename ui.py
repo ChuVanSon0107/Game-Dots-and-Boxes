@@ -3,8 +3,11 @@ import sys
 import math
 import os
 import random
+import threading
+import copy
 import rules
 import models
+import ai
 
 class UI:
     def __init__(self, GameState):
@@ -86,6 +89,14 @@ class UI:
         self.show_tutorial = False 
         
         self.GameState = GameState
+
+        # --- AI BOT STATE ---
+        self.ai_player = 2              # AI là Player 2
+        self.ai_delay_ms = 300          # Delay trước khi AI đi (ms) – để người chơi thấy
+        self.ai_thinking = False        # AI đang "suy nghĩ"?
+        self.ai_think_start = 0         # Thời điểm bắt đầu thinking
+        self.ai_move_pending = None     # Nước đi AI đã tính xong, chờ apply
+        self.ai_thread = None           # Background thread cho AI computation
         
         # THUẬT TOÁN AUTO-SCALING & CENTERING BÀN CỜ
         header_space = 145 
@@ -679,9 +690,17 @@ class UI:
             pygame.draw.circle(self.screen, (255, 255, 255), (x, y - 18), 3) 
 
     def _draw_header(self):
-        turn_txt = "Turn: P1 (You)" if self.GameState.current_player == 1 else "Turn: P2 (Bot)"
-        turn_c = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
-        turn_s = self.font_turn.render(turn_txt, True, turn_c)
+        if self.ai_thinking:
+            turn_txt = "Bot is thinking..."
+            turn_c = self.P2_COLOR
+            # Hiệu ứng nhấp nháy cho text "thinking"
+            alpha = int(180 + math.sin(self.anim_tick * 0.15) * 75)
+            turn_s = self.font_turn.render(turn_txt, True, turn_c)
+            turn_s.set_alpha(alpha)
+        else:
+            turn_txt = "Turn: P1 (You)" if self.GameState.current_player == 1 else "Turn: P2 (Bot)"
+            turn_c = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
+            turn_s = self.font_turn.render(turn_txt, True, turn_c)
         self.screen.blit(turn_s, (self.W // 2 - turn_s.get_width() // 2, 40))
 
         # P1 Header
@@ -806,15 +825,34 @@ class UI:
                 self.selected_dot = None; self.floating_texts.clear(); self.history_undo_info.clear(); self.app_state = 'GAME'
                 
         elif self.app_state == 'GAME':
+            # Nếu AI đang thinking → không cho click gì cả
+            if self.ai_thinking or self.GameState.current_player == self.ai_player:
+                # Chỉ cho phép exit, settings, help
+                if self.btn_in_game_exit.collidepoint(pos): 
+                    self.play_sound('click'); self.ai_thinking = False; self.ai_move_pending = None; self.app_state = 'MENU'
+                elif self.btn_in_game_settings.collidepoint(pos): 
+                    self.play_sound('click'); self.previous_state = 'GAME'; self.app_state = 'SETTINGS'
+                elif self.btn_in_game_help.collidepoint(pos): 
+                    self.play_sound('click'); self.show_tutorial = True
+                return
+
             if self.btn_in_game_exit.collidepoint(pos): self.play_sound('click'); self.app_state = 'MENU'; return
             elif self.btn_in_game_settings.collidepoint(pos): self.play_sound('click'); self.previous_state = 'GAME'; self.app_state = 'SETTINGS'; return
             elif self.btn_in_game_help.collidepoint(pos): self.play_sound('click'); self.show_tutorial = True; return
             elif self.btn_undo.collidepoint(pos):
                 self.play_sound('click')
-                if len(self.GameState.last_move) > 0:
-                    last_m = self.GameState.last_move[-1]; last_i = self.history_undo_info.pop()
+                # Undo: hoàn tác cho đến khi quay về lượt Player 1
+                # (undo cả nước AI lẫn nước người chơi trước đó)
+                while len(self.history_undo_info) > 0:
+                    last_m = self.GameState.last_move[-1]
+                    last_i = self.history_undo_info.pop()
+                    was_player = last_i['previous_player']
                     rules.undo_move(self.GameState, last_m, last_i)
-                    self.selected_dot = None; self.floating_texts.clear()
+                    # Dừng khi đã undo xong 1 nước của Player 1 (người chơi)
+                    if was_player != self.ai_player:
+                        break
+                self.selected_dot = None; self.floating_texts.clear()
+                self.ai_thinking = False; self.ai_move_pending = None
                 return
 
             hit_dot = None
@@ -836,19 +874,102 @@ class UI:
                         if dr == 0: move = models.Move('H', r1, min(c1, c2))
                         else:       move = models.Move('V', min(r1, r2), c1)
                         if rules.is_valid_move(self.GameState, move):
-                            player_b = self.GameState.current_player
-                            info = rules.apply_move(self.GameState, move)
-                            self.history_undo_info.append(info) 
-                            if info['completed_boxes']:
-                                self.play_sound('capture'); color = self.P1_COLOR if player_b == 1 else self.P2_COLOR
-                                if player_b == 1: self.p1_shake_timer = 20 
-                                else: self.p2_shake_timer = 20
-                                for box_r, box_c in info['completed_boxes']:
-                                    fx = self.margin_left + box_c * self.edge + self.edge // 2 - 15
-                                    fy = self.margin_up + box_r * self.edge + self.edge // 2 - 15
-                                    self.floating_texts.append({'x': fx, 'y': fy, 'text': '+1', 'color': color, 'timer': 60})
+                            self._apply_move_with_effects(move)
                         self.selected_dot = None 
                     else: self.selected_dot = hit_dot 
+
+    def _apply_move_with_effects(self, move):
+        """
+        Apply một nước đi và kích hoạt hiệu ứng (âm thanh, animation).
+        Dùng chung cho cả Player và AI.
+        """
+        player_b = self.GameState.current_player
+        info = rules.apply_move(self.GameState, move)
+        self.history_undo_info.append(info)
+        if info['completed_boxes']:
+            self.play_sound('capture')
+            color = self.P1_COLOR if player_b == 1 else self.P2_COLOR
+            if player_b == 1:
+                self.p1_shake_timer = 20
+            else:
+                self.p2_shake_timer = 20
+            for box_r, box_c in info['completed_boxes']:
+                fx = self.margin_left + box_c * self.edge + self.edge // 2 - 15
+                fy = self.margin_up + box_r * self.edge + self.edge // 2 - 15
+                self.floating_texts.append({'x': fx, 'y': fy, 'text': '+1', 'color': color, 'timer': 60})
+
+    def _ai_compute_worker(self, state_copy, ai_player):
+        """
+        Worker function chạy trên background thread.
+        Tính nước đi tốt nhất trên bản sao state (thread-safe).
+        """
+        try:
+            best_move = ai.get_best_move(state_copy, ai_player=ai_player)
+            self.ai_move_pending = best_move
+        except Exception as e:
+            print(f"AI error: {e}")
+            # Fallback: chọn nước đi đầu tiên
+            legal = ai.get_legal_moves(state_copy)
+            self.ai_move_pending = legal[0] if legal else None
+
+    def _handle_ai_turn(self):
+        """
+        Xử lý lượt AI trong game loop (non-blocking).
+        Chạy AI trên background thread để UI vẫn responsive.
+        """
+        if self.app_state != 'GAME':
+            return
+        if self.GameState.moves_remaining == 0:
+            return
+        if self.GameState.current_player != self.ai_player:
+            # Reset AI state khi không phải lượt AI
+            self.ai_thinking = False
+            self.ai_move_pending = None
+            self.ai_thread = None
+            return
+
+        now = pygame.time.get_ticks()
+
+        # Bước 1: Bắt đầu thinking – khởi chạy background thread
+        if not self.ai_thinking:
+            self.ai_thinking = True
+            self.ai_think_start = now
+            self.ai_move_pending = None
+
+            # Tạo deep copy của state để thread-safe
+            state_copy = copy.deepcopy(self.GameState)
+            self.ai_thread = threading.Thread(
+                target=self._ai_compute_worker,
+                args=(state_copy, self.ai_player),
+                daemon=True
+            )
+            self.ai_thread.start()
+            return
+
+        # Bước 2: Chờ thread tính xong
+        if self.ai_thread is not None and self.ai_thread.is_alive():
+            # Thread vẫn đang chạy → UI vẫn render bình thường
+            return
+
+        # Bước 3: Thread đã xong → chờ delay để người chơi thấy
+        if self.ai_move_pending is not None:
+            elapsed = now - self.ai_think_start
+            # Đảm bảo ít nhất ai_delay_ms trước khi apply
+            if elapsed < self.ai_delay_ms:
+                return
+
+            # Thực hiện nước đi
+            self.play_sound('click')
+            self._apply_move_with_effects(self.ai_move_pending)
+
+            # Reset AI state
+            self.ai_thinking = False
+            self.ai_move_pending = None
+            self.ai_thread = None
+        else:
+            # Trường hợp lỗi: không tìm được nước đi
+            self.ai_thinking = False
+            self.ai_thread = None
 
     def run_game(self):
         while True:
@@ -860,6 +981,9 @@ class UI:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT: pygame.quit(); sys.exit()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: self.handle_click(event.pos)
+
+            # --- AI turn handling ---
+            self._handle_ai_turn()
 
             if self.app_state == 'MENU': self.render_menu()
             elif self.app_state == 'SETTINGS': self.render_settings()
