@@ -12,7 +12,7 @@ class UI:
         pygame.mixer.init() 
         
         # --- WINDOW & DISPLAY SETUP ---
-        self.W, self.H = 800, 600
+        self.W, self.H = 1000, 800
         self.screen = pygame.display.set_mode((self.W, self.H))
         pygame.display.set_caption("Dots and Boxes - AI Project")
         self.clock = pygame.time.Clock()
@@ -86,12 +86,30 @@ class UI:
         self.show_tutorial = False 
         
         self.GameState = GameState
-        self.size = GameState.rows + 1 
-        self.edge = 65 
-        self.board_width = (self.size - 1) * self.edge 
-        self.board_height = (self.size - 1) * self.edge
+        
+        # THUẬT TOÁN AUTO-SCALING & CENTERING BÀN CỜ
+        header_space = 145 
+        footer_space = 90  
+        
+        avail_w = self.W - 120  
+        avail_h = self.H - header_space - footer_space
+        
+        edge_w = avail_w // self.GameState.cols
+        edge_h = avail_h // self.GameState.rows
+        self.edge = min(65, edge_w, edge_h) # Đảm bảo ô vuông không to quá 65px
+        
+        self.board_width = self.GameState.cols * self.edge 
+        self.board_height = self.GameState.rows * self.edge
+        
+        # Tự động căn giữa 2 bên lề
         self.margin_left = (self.W - self.board_width) // 2 
-        self.margin_up = 165 
+        self.margin_up = header_space + (avail_h - self.board_height) // 2
+        
+        # Co giãn bán kính hạt chấm và độ dày nét vẽ tương ứng mật độ (Đã tăng nhỉnh hơn)
+        self.line_thick = max(5, int(self.edge * 0.18))  # Tăng độ dày đường kẻ
+        self.dot_r_out = max(7, int(self.edge * 0.22))   # Tăng viền ngoài của chấm
+        self.dot_r_in = max(4, int(self.edge * 0.14))    # Tăng lõi trắng của chấm
+        self.click_r = max(16, int(self.edge * 0.50))    # Tăng vùng nhận diện click cho dễ bấm
         
         self.selected_dot = None 
         self.floating_texts = [] 
@@ -691,7 +709,7 @@ class UI:
     def _draw_lines_and_boxes(self):
         t = self.themes[self.current_theme_idx]
         if t['board_bg']:
-            pad = 40
+            pad = int(self.edge * 0.4) # Bóng nền co giãn theo cạnh
             bg_r = pygame.Rect(self.margin_left - pad, self.margin_up - pad, 
                                self.board_width + pad*2, self.board_height + pad*2)
             pygame.draw.rect(self.screen, t['board_bg'], bg_r, border_radius=20)
@@ -701,39 +719,41 @@ class UI:
                 start = (self.margin_left + j * self.edge, self.margin_up + i * self.edge)
                 end = (self.margin_left + (j + 1) * self.edge, self.margin_up + i * self.edge)
                 c = self.LINE_FILLED if self.GameState.h_edges[i][j] else self.LINE_EMPTY
-                pygame.draw.line(self.screen, c, start, end, 12)
+                pygame.draw.line(self.screen, c, start, end, self.line_thick)
 
         for i in range(self.GameState.rows):
             for j in range(self.GameState.cols + 1):
                 start = (self.margin_left + j * self.edge, self.margin_up + i * self.edge)
                 end = (self.margin_left + j * self.edge, self.margin_up + (i + 1) * self.edge)
                 c = self.LINE_FILLED if self.GameState.v_edges[i][j] else self.LINE_EMPTY
-                pygame.draw.line(self.screen, c, start, end, 12)
+                pygame.draw.line(self.screen, c, start, end, self.line_thick)
 
         for i in range(self.GameState.rows):
             for j in range(self.GameState.cols):
                 owner = self.GameState.boxes[i][j]
                 if owner != 0:
                     c = self.P1_COLOR if owner == 1 else self.P2_COLOR
-                    r = (self.margin_left + j * self.edge + 6, self.margin_up + i * self.edge + 6, self.edge - 12, self.edge - 12)
-                    pygame.draw.rect(self.screen, c, r, border_radius=8)
+                    pad_box = max(2, int(self.edge * 0.15))
+                    rect_size = self.edge - pad_box * 2
+                    r = (self.margin_left + j * self.edge + pad_box, self.margin_up + i * self.edge + pad_box, rect_size, rect_size)
+                    pygame.draw.rect(self.screen, c, r, border_radius=max(2, int(self.edge * 0.1)))
 
     def _draw_dots(self):
         cur_c = self.P1_COLOR if self.GameState.current_player == 1 else self.P2_COLOR
-        for i in range(self.size):
-            for j in range(self.size):
+        for i in range(self.GameState.rows + 1):
+            for j in range(self.GameState.cols + 1):
                 cx, cy = self.margin_left + j * self.edge, self.margin_up + i * self.edge
-                pygame.draw.circle(self.screen, self.DOT_OUTLINE, (cx, cy), 15)
+                pygame.draw.circle(self.screen, self.DOT_OUTLINE, (cx, cy), self.dot_r_out)
                 if self.selected_dot == (i, j):
-                    pygame.draw.circle(self.screen, cur_c, (cx, cy), 18)
+                    pygame.draw.circle(self.screen, cur_c, (cx, cy), self.dot_r_out + 3)
                 elif self.selected_dot is not None:
                     r1, c1 = self.selected_dot
                     if (abs(i-r1)==1 and j==c1) or (abs(j-c1)==1 and i==r1):
                         empty = False
                         if i==r1 and not self.GameState.h_edges[i][min(c1,j)]: empty = True
                         elif j==c1 and not self.GameState.v_edges[min(r1,i)][j]: empty = True
-                        if empty: pygame.draw.circle(self.screen, cur_c, (cx, cy), 17, 4) 
-                pygame.draw.circle(self.screen, self.DOT_COLOR, (cx, cy), 11)
+                        if empty: pygame.draw.circle(self.screen, cur_c, (cx, cy), self.dot_r_out + 2, 3) 
+                pygame.draw.circle(self.screen, self.DOT_COLOR, (cx, cy), self.dot_r_in)
 
     def _draw_floating_texts(self):
         for f in self.floating_texts[:]:
@@ -798,11 +818,13 @@ class UI:
                 return
 
             hit_dot = None
-            for i in range(self.size):
-                for j in range(self.size):
+            for i in range(self.GameState.rows + 1):
+                for j in range(self.GameState.cols + 1):
                     cx, cy = self.margin_left + j * self.edge, self.margin_up + i * self.edge
-                    if math.hypot(pos[0] - cx, pos[1] - cy) <= 18: hit_dot = (i, j); break
-            
+                    # Sử dụng bán kính click động
+                    if math.hypot(pos[0] - cx, pos[1] - cy) <= self.click_r: 
+                        hit_dot = (i, j)
+                        break
             if hit_dot:
                 self.play_sound('click')
                 if self.selected_dot is None: self.selected_dot = hit_dot 
