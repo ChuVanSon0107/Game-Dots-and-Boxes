@@ -78,12 +78,10 @@ def _find_capturable_chains(state: GameState):
     """
     Tìm các chuỗi (chain) box có thể ăn liên tiếp.
 
-    Một chain bắt đầu từ box có 3 cạnh, rồi đi theo các box kề nhau
-    chia sẻ cạnh chưa vẽ (mỗi box kế tiếp có 2 cạnh → sẽ thành 3
-    khi ta ăn box trước đó).
-
-    Returns: list of chains, mỗi chain = list of (box_r, box_c)
-             theo thứ tự ăn (box đầu có 3 cạnh)
+    Returns: list of (chain, tail_3edge_box)
+        - chain: list of (box_r, box_c) theo thứ tự ăn
+        - tail_3edge_box: (r, c) nếu cuối chain kề box 3 cạnh (closed chain),
+                          None nếu open chain
     """
     rows, cols = state.rows, state.cols
     visited = set()
@@ -96,19 +94,15 @@ def _find_capturable_chains(state: GameState):
             if state.edges_count[r][c] != 3:
                 continue
 
-            # Tìm chain từ box (r,c) có 3 cạnh
             chain = [(r, c)]
             visited.add((r, c))
 
-            # Đi dọc theo chain: tìm box kề chia sẻ cạnh chưa vẽ
-            # và có 2 cạnh (sẽ thành 3 khi ta ăn box hiện tại)
             cr, cc = r, c
             while True:
                 found_next = False
                 for nr, nc, shared_drawn in _get_box_neighbors_with_edge(state, cr, cc):
                     if (nr, nc) in visited or state.boxes[nr][nc] != 0:
                         continue
-                    # Box kề chia sẻ cạnh chưa vẽ VÀ có đúng 2 cạnh
                     if not shared_drawn and state.edges_count[nr][nc] == 2:
                         chain.append((nr, nc))
                         visited.add((nr, nc))
@@ -118,7 +112,18 @@ def _find_capturable_chains(state: GameState):
                 if not found_next:
                     break
 
-            chains.append(chain)
+            # Kiểm tra cuối chain có kề box 3 cạnh không (closed chain)
+            tail_3edge = None
+            last_r, last_c = chain[-1]
+            for nr, nc, shared_drawn in _get_box_neighbors_with_edge(state, last_r, last_c):
+                if (nr, nc) in visited or state.boxes[nr][nc] != 0:
+                    continue
+                if not shared_drawn and state.edges_count[nr][nc] == 3:
+                    tail_3edge = (nr, nc)
+                    visited.add((nr, nc))  # Đánh dấu đã xử lý
+                    break
+
+            chains.append((chain, tail_3edge))
 
     return chains
 
@@ -126,56 +131,41 @@ def _find_capturable_chains(state: GameState):
 def _get_box_neighbors_with_edge(state, r, c):
     """
     Trả về danh sách (nr, nc, shared_edge_drawn) cho các box kề box (r,c).
-    shared_edge_drawn = True nếu cạnh chung đã được vẽ.
     """
     rows, cols = state.rows, state.cols
     neighbors = []
-    # Trên: box (r-1, c) — cạnh chung là h_edges[r][c]
     if r > 0:
         neighbors.append((r - 1, c, state.h_edges[r][c]))
-    # Dưới: box (r+1, c) — cạnh chung là h_edges[r+1][c]
     if r < rows - 1:
         neighbors.append((r + 1, c, state.h_edges[r + 1][c]))
-    # Trái: box (r, c-1) — cạnh chung là v_edges[r][c]
     if c > 0:
         neighbors.append((r, c - 1, state.v_edges[r][c]))
-    # Phải: box (r, c+1) — cạnh chung là v_edges[r][c+1]
     if c < cols - 1:
         neighbors.append((r, c + 1, state.v_edges[r][c + 1]))
     return neighbors
 
 
 def _get_missing_edge(state, box_r, box_c):
-    """
-    Tìm cạnh còn thiếu của box có 3 cạnh.
-    Returns: Move hoặc None
-    """
+    """Tìm cạnh còn thiếu của box có 3 cạnh."""
     r, c = box_r, box_c
-    # Top edge: h_edges[r][c]
     if not state.h_edges[r][c]:
         return Move('H', r, c)
-    # Bottom edge: h_edges[r+1][c]
     if not state.h_edges[r + 1][c]:
         return Move('H', r + 1, c)
-    # Left edge: v_edges[r][c]
     if not state.v_edges[r][c]:
         return Move('V', r, c)
-    # Right edge: v_edges[r][c+1]
     if not state.v_edges[r][c + 1]:
         return Move('V', r, c + 1)
     return None
 
 
 def _get_shared_edge(state, r1, c1, r2, c2):
-    """
-    Tìm cạnh chung chưa vẽ giữa 2 box kề nhau.
-    Returns: Move hoặc None
-    """
-    if r1 == r2:  # Cùng hàng → cạnh dọc
+    """Tìm cạnh chung chưa vẽ giữa 2 box kề nhau."""
+    if r1 == r2:
         col = max(c1, c2)
         if not state.v_edges[r1][col]:
             return Move('V', r1, col)
-    elif c1 == c2:  # Cùng cột → cạnh ngang
+    elif c1 == c2:
         row = max(r1, r2)
         if not state.h_edges[row][c1]:
             return Move('H', row, c1)
@@ -183,11 +173,11 @@ def _get_shared_edge(state, r1, c1, r2, c2):
 
 
 # ============================================================
-#  Smart Force-Capture: Greedy + Double-Cross options
+#  Smart Force-Capture: Greedy + Double-Cross + Closed Chain Sacrifice
 # ============================================================
 
 def _force_captures_greedy(state: GameState):
-    """Ăn tất cả box có thể (greedy, không double-cross)."""
+    """Ăn tất cả box có thể (greedy)."""
     captures = []
     while True:
         found = False
@@ -226,56 +216,53 @@ def _undo_captures(state, captures):
 
 def _find_double_cross_options(state: GameState):
     """
-    Tìm các lựa chọn sacrifice (double-cross / quad sacrifice).
+    Tìm các lựa chọn sacrifice:
 
-    - Open chain (≥3 box): ăn trừ 2 cuối → sacrifice 2 box
-    - Closed loop (≥4 box): ăn trừ 4 cuối → sacrifice 4 box
-      (vẽ cạnh giữa chia 4 box thành 2 cặp)
+    1. Open chain (≥3 box, tail KHÔNG có 3 cạnh):
+       → Double-cross: ăn trừ 2 cuối, sacrifice 2 box
+
+    2. Closed chain (≥2 box, tail CÓ 3 cạnh):
+       → Full sacrifice: KHÔNG ăn gì, vẽ cạnh giữa
+       → Cascade sẽ cho đối thủ toàn bộ chain
+       → Đổi lại: giữ tempo (đối thủ phải mở chain sau)
+
+    3. Closed loop (≥4 box, vòng kín):
+       → Quad sacrifice: vẽ cạnh giữa, sacrifice 4 box
 
     Returns: list of (captures_partial, sacrifice_move)
     """
-    chains = _find_capturable_chains(state)
-    if not chains:
+    chain_data = _find_capturable_chains(state)
+    if not chain_data:
         return []
 
     options = []
 
-    for chain in chains:
+    for chain, tail_3edge in chain_data:
         n = len(chain)
-        if n < 3:
-            continue
 
-        # Xác định đây là open chain hay có thể là loop
-        # Kiểm tra: box cuối chain có kết nối ngược về box đầu không?
+        # Xác định loop
         first_box = chain[0]
         last_box = chain[-1]
         is_loop = False
-
-        if n >= 4:
-            # Kiểm tra shared edge chưa vẽ giữa last và first
+        if n >= 4 and tail_3edge is None:
             shared = _get_shared_edge(state, last_box[0], last_box[1],
                                       first_box[0], first_box[1])
             if shared is not None:
                 is_loop = True
 
         if is_loop and n >= 4:
-            # === CLOSED LOOP: Quad sacrifice (chừa 4 box cuối) ===
+            # === CLOSED LOOP: Quad sacrifice ===
             leave_count = min(4, n)
             capture_count = n - leave_count
 
             if capture_count < 1:
-                # Loop quá nhỏ (4 box), sacrifice = toàn bộ
-                # Tìm sacrifice edge: cạnh giữa box[1] và box[2]
-                if n >= 4:
-                    mid = n // 2
-                    sac = _get_shared_edge(state, chain[mid-1][0], chain[mid-1][1],
-                                           chain[mid][0], chain[mid][1])
-                    if sac and not _is_edge_drawn(state, sac):
-                        # Không ăn gì, chỉ sacrifice
-                        options.append(([], sac))
+                mid = n // 2
+                sac = _get_shared_edge(state, chain[mid-1][0], chain[mid-1][1],
+                                       chain[mid][0], chain[mid][1])
+                if sac and not _is_edge_drawn(state, sac):
+                    options.append(([], sac))
                 continue
 
-            # Ăn capture_count box đầu, chừa leave_count box cuối
             sac_a = chain[-(leave_count // 2 + 1)]
             sac_b = chain[-(leave_count // 2)]
             sacrifice = _get_shared_edge(state, sac_a[0], sac_a[1],
@@ -283,16 +270,37 @@ def _find_double_cross_options(state: GameState):
             if sacrifice is None:
                 continue
 
-            partial_captures = _try_partial_capture(state, chain, capture_count)
-            if partial_captures is not None:
+            partial = _try_partial_capture(state, chain, capture_count)
+            if partial is not None:
                 if not _is_edge_drawn(state, sacrifice):
-                    options.append((partial_captures, sacrifice))
+                    options.append((partial, sacrifice))
                 else:
-                    _undo_captures(state, partial_captures)
-            # else: undo already done in _try_partial_capture
+                    _undo_captures(state, partial)
+
+        elif tail_3edge is not None:
+            # === CLOSED CHAIN: Full sacrifice ===
+            # Cả 2 đầu chain đều có 3 cạnh → cascade không thể dừng
+            # → Không thể double-cross (sacrifice 2)
+            # → Phải sacrifice toàn bộ bằng cách vẽ cạnh giữa
+
+            full_chain = chain + [tail_3edge]  # Bao gồm cả box 3 cạnh ở cuối
+            full_n = len(full_chain)
+
+            if full_n >= 2:
+                # Tìm cạnh giữa: chia chain thành 2 nửa
+                mid = full_n // 2
+                sac = _get_shared_edge(state,
+                                       full_chain[mid-1][0], full_chain[mid-1][1],
+                                       full_chain[mid][0], full_chain[mid][1])
+                if sac and not _is_edge_drawn(state, sac):
+                    # Không ăn gì → sacrifice toàn bộ full_n box
+                    options.append(([], sac))
 
         else:
-            # === OPEN CHAIN: Double-cross (chừa 2 box cuối) ===
+            # === OPEN CHAIN: Double-cross (sacrifice 2) ===
+            if n < 3:
+                continue
+
             last2_a = chain[-2]
             last2_b = chain[-1]
             sacrifice = _get_shared_edge(state, last2_a[0], last2_a[1],
@@ -301,12 +309,12 @@ def _find_double_cross_options(state: GameState):
                 continue
 
             capture_count = n - 2
-            partial_captures = _try_partial_capture(state, chain, capture_count)
-            if partial_captures is not None:
+            partial = _try_partial_capture(state, chain, capture_count)
+            if partial is not None:
                 if not _is_edge_drawn(state, sacrifice):
-                    options.append((partial_captures, sacrifice))
+                    options.append((partial, sacrifice))
                 else:
-                    _undo_captures(state, partial_captures)
+                    _undo_captures(state, partial)
 
     return options
 
