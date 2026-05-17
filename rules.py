@@ -3,7 +3,6 @@ from models import Move, GameState
 def create_move(edge_type: str, r: int, c: int):
     return Move(edge_type=edge_type, r=r, c=c)
 
-
 def is_valid_move(state: GameState, move: Move):
     if move.edge_type not in ('H', 'V'):
         return False
@@ -20,7 +19,6 @@ def is_valid_move(state: GameState, move: Move):
             return False
         return not state.v_edges[move.r][move.c]
     
-
 def get_affected_boxes(move: Move, rows: int, cols: int):
     affected = []
 
@@ -41,7 +39,6 @@ def get_affected_boxes(move: Move, rows: int, cols: int):
             affected.append((move.r, move.c))
 
     return affected
-
 
 def is_box_closed(state: GameState, box_r: int, box_c: int):
     top = state.h_edges[box_r][box_c]
@@ -64,11 +61,15 @@ def apply_move(state: GameState, move: Move):
         'score_change_2': 0
     }
 
+    # 20/4/2026 - Tuấn Khanh
+    # Sửa giá trị gán cho h_edges và v_edges từ True sang current_player để phù hợp
+    # với logic điểm số và xác định người chơi đã vẽ đường nào. Điều này giúp việc kiểm tra ô vuông hoàn thành dễ dàng hơn.
+
     # 1. Đánh dấu cạnh đã được vẽ
     if move.edge_type == 'H':
-        state.h_edges[move.r][move.c] = True
+        state.h_edges[move.r][move.c] = state.current_player
     else:
-        state.v_edges[move.r][move.c] = True
+        state.v_edges[move.r][move.c] = state.current_player
 
     state.moves_remaining -= 1
     boxes_closed_this_turn = 0
@@ -94,8 +95,8 @@ def apply_move(state: GameState, move: Move):
             undo_info['score_change_2'] = boxes_closed_this_turn
         # Điểm mấu chốt: Ăn được ô thì KHÔNG đổi lượt (được đi tiếp)
     else:
-        # Chuyển lượt: 1 -> 2, 2 -> 1
-        state.current_player = 3 - state.current_player
+        # Chuyển lượt
+        switch_player(state)
 
     # 4. Lưu lại lịch sử nước đi
     state.last_move.append(move)
