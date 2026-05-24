@@ -108,8 +108,8 @@ def _find_capturable_chains(state: GameState):
                 for nr, nc, shared_drawn in _get_box_neighbors_with_edge(state, cr, cc):
                     if (nr, nc) in visited or state.boxes[nr][nc] != 0:
                         continue
-                    # Box kề chia sẻ cạnh chưa vẽ VÀ có đúng 2 cạnh
-                    if not shared_drawn and state.edges_count[nr][nc] == 2:
+                    # Box kề chia sẻ cạnh chưa vẽ VÀ có >= 2 cạnh
+                    if not shared_drawn and state.edges_count[nr][nc] >= 2:
                         chain.append((nr, nc))
                         visited.add((nr, nc))
                         cr, cc = nr, nc
@@ -182,155 +182,62 @@ def _get_shared_edge(state, r1, c1, r2, c2):
     return None
 
 
+def _get_exit_edge(state, r, c, shared_edge):
+    """Tìm cạnh còn thiếu của box (r,c) mà không phải là shared_edge."""
+    edges = []
+    if not state.h_edges[r][c]: edges.append(Move('H', r, c))
+    if not state.h_edges[r + 1][c]: edges.append(Move('H', r + 1, c))
+    if not state.v_edges[r][c]: edges.append(Move('V', r, c))
+    if not state.v_edges[r][c + 1]: edges.append(Move('V', r, c + 1))
+    
+    for e in edges:
+        if e.edge_type != shared_edge.edge_type or e.r != shared_edge.r or e.c != shared_edge.c:
+            return e
+    return None
+
+
 # ============================================================
-#  Smart Force-Capture: Greedy + Double-Cross options
+#  Forcing Moves: Greedy Capture + Double-Cross
 # ============================================================
 
-def _force_captures_greedy(state: GameState):
-    """Ăn tất cả box có thể (greedy, không double-cross)."""
-    captures = []
-    while True:
-        found = False
-        for r in range(state.rows + 1):
-            for c in range(state.cols):
-                if not state.h_edges[r][c]:
-                    move = Move('H', r, c)
-                    if would_complete_box(state, move) > 0:
-                        captures.append((move, apply_move(state, move)))
-                        found = True
-                        break
-            if found:
-                break
-        if found:
-            continue
-        for r in range(state.rows):
-            for c in range(state.cols + 1):
-                if not state.v_edges[r][c]:
-                    move = Move('V', r, c)
-                    if would_complete_box(state, move) > 0:
-                        captures.append((move, apply_move(state, move)))
-                        found = True
-                        break
-            if found:
-                break
-        if not found:
-            break
-    return captures
-
-
-def _undo_captures(state, captures):
-    """Hoàn tác chuỗi capture theo thứ tự ngược."""
-    for move, undo_info in reversed(captures):
-        undo_move(state, move, undo_info)
-
-
-def _find_double_cross_options(state: GameState):
+def get_forcing_moves(state: GameState):
     """
-    Tìm các lựa chọn sacrifice (double-cross / quad sacrifice).
-
-    - Open chain (≥3 box): ăn trừ 2 cuối → sacrifice 2 box
-    - Closed loop (≥4 box): ăn trừ 4 cuối → sacrifice 4 box
-      (vẽ cạnh giữa chia 4 box thành 2 cặp)
-
-    Returns: list of (captures_partial, sacrifice_move)
+    Sinh các nước đi ép buộc (ăn box) và sacrifice (double-cross) 
+    nếu chuỗi đang ở critical point.
     """
     chains = _find_capturable_chains(state)
     if not chains:
         return []
 
-    options = []
-
-    for chain in chains:
-        n = len(chain)
-        if n < 3:
-            continue
-
-        # Xác định đây là open chain hay có thể là loop
-        # Kiểm tra: box cuối chain có kết nối ngược về box đầu không?
-        first_box = chain[0]
-        last_box = chain[-1]
-        is_loop = False
-
-        if n >= 4:
-            # Kiểm tra shared edge chưa vẽ giữa last và first
-            shared = _get_shared_edge(state, last_box[0], last_box[1],
-                                      first_box[0], first_box[1])
-            if shared is not None:
-                is_loop = True
-
-        if is_loop and n >= 4:
-            # === CLOSED LOOP: Quad sacrifice (chừa 4 box cuối) ===
-            leave_count = min(4, n)
-            capture_count = n - leave_count
-
-            if capture_count < 1:
-                # Loop quá nhỏ (4 box), sacrifice = toàn bộ
-                # Tìm sacrifice edge: cạnh giữa box[1] và box[2]
-                if n >= 4:
-                    mid = n // 2
-                    sac = _get_shared_edge(state, chain[mid-1][0], chain[mid-1][1],
-                                           chain[mid][0], chain[mid][1])
-                    if sac and not _is_edge_drawn(state, sac):
-                        # Không ăn gì, chỉ sacrifice
-                        options.append(([], sac))
-                continue
-
-            # Ăn capture_count box đầu, chừa leave_count box cuối
-            sac_a = chain[-(leave_count // 2 + 1)]
-            sac_b = chain[-(leave_count // 2)]
-            sacrifice = _get_shared_edge(state, sac_a[0], sac_a[1],
-                                         sac_b[0], sac_b[1])
-            if sacrifice is None:
-                continue
-
-            partial_captures = _try_partial_capture(state, chain, capture_count)
-            if partial_captures is not None:
-                if not _is_edge_drawn(state, sacrifice):
-                    options.append((partial_captures, sacrifice))
-                else:
-                    _undo_captures(state, partial_captures)
-            # else: undo already done in _try_partial_capture
-
-        else:
-            # === OPEN CHAIN: Double-cross (chừa 2 box cuối) ===
-            last2_a = chain[-2]
-            last2_b = chain[-1]
-            sacrifice = _get_shared_edge(state, last2_a[0], last2_a[1],
-                                         last2_b[0], last2_b[1])
-            if sacrifice is None:
-                continue
-
-            capture_count = n - 2
-            partial_captures = _try_partial_capture(state, chain, capture_count)
-            if partial_captures is not None:
-                if not _is_edge_drawn(state, sacrifice):
-                    options.append((partial_captures, sacrifice))
-                else:
-                    _undo_captures(state, partial_captures)
-
-    return options
-
-
-def _try_partial_capture(state, chain, count):
-    """
-    Thử ăn 'count' box đầu tiên trong chain.
-    Returns: list of (move, undo_info) nếu thành công, None nếu thất bại.
-    Nếu thất bại, tự undo tất cả.
-    """
-    captures = []
-    for i in range(count):
-        br, bc = chain[i]
-        if state.edges_count[br][bc] >= 3 and state.boxes[br][bc] == 0:
-            missing = _get_missing_edge(state, br, bc)
-            if missing and would_complete_box(state, missing) > 0:
-                captures.append((missing, apply_move(state, missing)))
-            else:
-                _undo_captures(state, captures)
-                return None
-        else:
-            _undo_captures(state, captures)
-            return None
-    return captures if captures else None
+    chain = chains[0]
+    n = len(chain)
+    first_box = chain[0]
+    last_box = chain[-1]
+    is_closed = (state.edges_count[last_box[0]][last_box[1]] == 3) and (n > 1)
+    
+    moves = []
+    missing = _get_missing_edge(state, first_box[0], first_box[1])
+    if missing:
+        moves.append(missing)
+        
+    if is_closed:
+        if n == 4:
+            sac_a = chain[1]
+            sac_b = chain[2]
+            sac_move = _get_shared_edge(state, sac_a[0], sac_a[1], sac_b[0], sac_b[1])
+            if sac_move and not _is_edge_drawn(state, sac_move):
+                moves.append(sac_move)
+    else:
+        if n == 2:
+            sac_a = chain[0]
+            sac_b = chain[1]
+            shared = _get_shared_edge(state, sac_a[0], sac_a[1], sac_b[0], sac_b[1])
+            if shared:
+                sac_move = _get_exit_edge(state, sac_b[0], sac_b[1], shared)
+                if sac_move and not _is_edge_drawn(state, sac_move):
+                    moves.append(sac_move)
+                    
+    return moves
 
 
 def _is_edge_drawn(state, move):
@@ -453,40 +360,57 @@ def _analyze_chains_and_loops(state: GameState):
 
 def _evaluate_chains(state: GameState, ai_player: int):
     """
-    Đánh giá chain control dựa trên Berlekamp's Nimstring theory.
-
-    - Mỗi open chain (≥3): người kiểm soát sacrifice 2 box, ăn phần còn lại
-    - Mỗi closed loop (≥4): người kiểm soát sacrifice 4 box, ăn phần còn lại
-    - Tổng "looney moves" = số chain + số loop = quyết định parity
-
-    Parity rule: nếu tổng looney moves CHẴN → người đi trước (trong endgame)
-    có lợi. Nếu LẺ → người đi sau có lợi.
+    Đánh giá chain/loop control dựa trên Nimstring theory chuẩn xác.
+    Tính toán chính xác số điểm (net score) dự kiến mà mỗi bên sẽ nhận được
+    khi toàn bộ các chuỗi/loop được giải quyết bằng chiến thuật double-cross.
     """
     open_chains, closed_loops = _analyze_chains_and_loops(state)
 
-    # Tổng "controllable regions" = quyết định ai phải mở chain đầu tiên
-    total_regions = len(open_chains) + len(closed_loops)
+    regions = []
+    for ch in open_chains:
+        regions.append({'len': ch, 'sac': 2})
+    for lp in closed_loops:
+        regions.append({'len': lp, 'sac': 4})
 
-    # Ước tính net score impact
-    # Nếu bạn control: bạn ăn (chain_len - 2) mỗi open chain, (loop_len - 4) mỗi loop
-    # Nếu đối thủ control: ngược lại
-    chain_value = sum(ch - 2 for ch in open_chains)  # net gain per chain
-    loop_value = sum(lp - 4 for lp in closed_loops)   # net gain per loop
-    total_value = chain_value + loop_value
+    if not regions:
+        return 0
 
-    # Parity: chẵn regions → current player có lợi
+    # Nạn nhân (victim) sẽ ép ta (controller) ăn các chuỗi có net-gain ít nhất trước.
+    # Do đó, chuỗi cuối cùng (được ăn trọn, không phải sacrifice) sẽ là chuỗi ngon nhất.
+    regions.sort(key=lambda x: x['len'] - x['sac'])
+
+    total_regions = len(regions)
+
+    # Quy tắc Parity:
+    # Khi số lượng region CHẴN, người đang có lượt (current_player) sẽ có cơ hội
+    # bám sát nước đi của đối thủ (mirror) và giành quyền điều khiển (controller).
+    current_player_controls = (total_regions % 2 == 0)
+
+    controller_points = 0
+    victim_points = 0
+
+    for i, reg in enumerate(regions):
+        if i == total_regions - 1:
+            # Chuỗi cuối cùng: Không cần sacrifice nữa, Controller ăn trọn toàn bộ
+            controller_points += reg['len']
+        else:
+            # Áp dụng chiến thuật Double-cross ép buộc
+            controller_points += max(0, reg['len'] - reg['sac'])
+            victim_points += min(reg['len'], reg['sac'])
+
+    net_chain_score = controller_points - victim_points
+
     if state.current_player == ai_player:
-        if total_regions % 2 == 0:
-            parity_score = total_regions * 8 + total_value * 3
-        else:
-            parity_score = -total_regions * 8 - total_value * 3
+        # AI đang đi
+        ai_chain_diff = net_chain_score if current_player_controls else -net_chain_score
     else:
-        if total_regions % 2 == 1:
-            parity_score = total_regions * 8 + total_value * 3
-        else:
-            parity_score = -total_regions * 8 - total_value * 3
+        # Đối thủ đang đi
+        ai_chain_diff = -net_chain_score if current_player_controls else net_chain_score
 
-    return parity_score
+    # Nhân trọng số 15. Vì trong hàm evaluate() đang có đoạn `chain_score * 15`
+    # Mỗi box lợi thế ở đây sẽ đóng góp: 1 * 15 * 15 = 225 điểm heuristic 
+    # (vượt trội hơn hẳn so với cap_score thông thường)
+    return ai_chain_diff * 15
 
 
 # ============================================================
@@ -518,127 +442,24 @@ def _order_moves(state, moves, tt_best_key=None):
 
 
 # ============================================================
-#  Minimax + Alpha-Beta + TT + Force-Capture + Double-Cross
+#  Minimax + Alpha-Beta + TT
 # ============================================================
 
 def minimax(state: GameState, depth: int, alpha: float, beta: float,
             ai_player: int):
-    """
-    Minimax với Alpha-Beta Pruning, Transposition Table,
-    Force-Capture optimization, và Double-Cross branching.
-    """
     global _tt
 
-    # --- Bước 1: Kiểm tra double-cross trước khi force-capture ---
-    # Tìm xem có cơ hội double-cross không
-    dc_options = []
-    if depth >= 2:  # Chỉ xét double-cross ở depth đủ sâu
-        dc_options = _find_double_cross_options(state)
-
-    # Nếu có double-cross, ta sẽ thử CẢ HAI nhánh:
-    #   A) Greedy (ăn hết)
-    #   B) Double-cross (ăn trừ 2 cuối + sacrifice)
-    # Rồi chọn nhánh tốt hơn.
-
-    if dc_options:
-        # Có ít nhất 1 double-cross option
-        # Nhánh A: Greedy capture (undo dc partial, do full greedy)
-        # Undo partial captures từ dc detection
-        for partial_caps, sac_move in dc_options:
-            _undo_captures(state, partial_caps)
-
-        return _minimax_with_dc(state, depth, alpha, beta, ai_player, dc_options)
-    else:
-        # Không có double-cross → chạy bình thường
-        return _minimax_core(state, depth, alpha, beta, ai_player)
-
-
-def _minimax_with_dc(state, depth, alpha, beta, ai_player, dc_options):
-    """
-    Minimax có xét double-cross.
-    Thử 2 nhánh: greedy vs double-cross, chọn nhánh tốt hơn.
-    """
-    is_max = (state.current_player == ai_player)
-
-    # === Nhánh A: Greedy (ăn hết) ===
-    score_greedy, move_greedy = _minimax_core(state, depth, alpha, beta, ai_player)
-
-    # === Nhánh B: Double-cross (cho mỗi dc option) ===
-    best_dc_score = -math.inf if is_max else math.inf
-    best_dc_first_move = None
-
-    for dc_partial_info, sacrifice_move in dc_options:
-        # Thực hiện partial captures (ăn trừ 2 cuối)
-        partial_caps = []
-        valid = True
-        for orig_move, _ in dc_partial_info:
-            # Phải re-apply vì đã undo ở trên
-            if would_complete_box(state, orig_move) > 0:
-                partial_caps.append((orig_move, apply_move(state, orig_move)))
-            else:
-                valid = False
-                break
-
-        if not valid:
-            _undo_captures(state, partial_caps)
-            continue
-
-        first_move = partial_caps[0][0] if partial_caps else sacrifice_move
-
-        # Vẽ sacrifice edge (tạo 2 box 3 cạnh cho đối thủ)
-        if not _is_edge_drawn(state, sacrifice_move):
-            sac_undo = apply_move(state, sacrifice_move)
-
-            # Recursive minimax từ state sau sacrifice
-            dc_score, _ = _minimax_core(state, depth - 1, alpha, beta, ai_player)
-
-            undo_move(state, sacrifice_move, sac_undo)
-        else:
-            dc_score = score_greedy  # Fallback
-
-        _undo_captures(state, partial_caps)
-
-        if is_max:
-            if dc_score > best_dc_score:
-                best_dc_score = dc_score
-                best_dc_first_move = first_move
-        else:
-            if dc_score < best_dc_score:
-                best_dc_score = dc_score
-                best_dc_first_move = first_move
-
-    # So sánh greedy vs double-cross
-    if is_max:
-        if best_dc_first_move and best_dc_score > score_greedy:
-            return best_dc_score, best_dc_first_move
-        return score_greedy, move_greedy
-    else:
-        if best_dc_first_move and best_dc_score < score_greedy:
-            return best_dc_score, best_dc_first_move
-        return score_greedy, move_greedy
-
-
-def _minimax_core(state, depth, alpha, beta, ai_player):
-    """Minimax core: force-capture greedy → search non-capture moves."""
-    global _tt
-
-    # Force-capture tất cả box
-    captures = _force_captures_greedy(state)
-    first_capture = captures[0][0] if captures else None
-
-    # Base cases
     if is_terminal(state):
         if ai_player == 1:
             diff = state.score_player1 - state.score_player2
         else:
             diff = state.score_player2 - state.score_player1
-        _undo_captures(state, captures)
-        return diff * 10000, first_capture
+        return diff * 10000, None
 
-    if depth <= 0:
-        score = evaluate(state, ai_player)
-        _undo_captures(state, captures)
-        return score, first_capture
+    forcing_moves = get_forcing_moves(state)
+
+    if depth <= 0 and not forcing_moves:
+        return evaluate(state, ai_player), None
 
     # TT lookup
     alpha_orig = alpha
@@ -650,27 +471,25 @@ def _minimax_core(state, depth, alpha, beta, ai_player):
         tt_depth, tt_score, tt_flag, tt_mk = _tt[key]
         if tt_depth >= depth:
             if tt_flag == EXACT:
-                _undo_captures(state, captures)
-                return tt_score, first_capture or _key_to_move(tt_mk)
+                return tt_score, _key_to_move(tt_mk)
             elif tt_flag == LOWERBOUND:
                 alpha = max(alpha, tt_score)
             elif tt_flag == UPPERBOUND:
                 beta = min(beta, tt_score)
             if alpha >= beta:
-                _undo_captures(state, captures)
-                return tt_score, first_capture or _key_to_move(tt_mk)
+                return tt_score, _key_to_move(tt_mk)
         tt_best_key = tt_mk
 
-    # Sinh non-capture moves
     is_max = (state.current_player == ai_player)
-    legal_moves = get_legal_moves(state)
 
-    if not legal_moves:
-        score = evaluate(state, ai_player)
-        _undo_captures(state, captures)
-        return score, first_capture
+    if forcing_moves:
+        ordered = forcing_moves
+    else:
+        legal_moves = get_legal_moves(state)
+        if not legal_moves:
+            return evaluate(state, ai_player), None
+        ordered = _order_moves(state, legal_moves, tt_best_key)
 
-    ordered = _order_moves(state, legal_moves, tt_best_key)
     best_move = ordered[0]
 
     # Alpha-Beta search
@@ -678,7 +497,8 @@ def _minimax_core(state, depth, alpha, beta, ai_player):
         best_val = -math.inf
         for move in ordered:
             undo_info = apply_move(state, move)
-            val, _ = minimax(state, depth - 1, alpha, beta, ai_player)
+            next_depth = depth if undo_info['previous_player'] == state.current_player else depth - 1
+            val, _ = minimax(state, next_depth, alpha, beta, ai_player)
             undo_move(state, move, undo_info)
             if val > best_val:
                 best_val = val
@@ -690,7 +510,8 @@ def _minimax_core(state, depth, alpha, beta, ai_player):
         best_val = math.inf
         for move in ordered:
             undo_info = apply_move(state, move)
-            val, _ = minimax(state, depth - 1, alpha, beta, ai_player)
+            next_depth = depth if undo_info['previous_player'] == state.current_player else depth - 1
+            val, _ = minimax(state, next_depth, alpha, beta, ai_player)
             undo_move(state, move, undo_info)
             if val < best_val:
                 best_val = val
@@ -701,16 +522,14 @@ def _minimax_core(state, depth, alpha, beta, ai_player):
 
     # TT store
     if len(_tt) < _tt_max:
+        flag = EXACT
         if best_val <= alpha_orig:
             flag = UPPERBOUND
         elif best_val >= beta_orig:
             flag = LOWERBOUND
-        else:
-            flag = EXACT
         _tt[key] = (depth, best_val, flag, _move_key(best_move))
 
-    _undo_captures(state, captures)
-    return best_val, first_capture or best_move
+    return best_val, best_move
 
 
 # ============================================================
@@ -761,15 +580,17 @@ def get_best_move(state: GameState, ai_player: int = 2, base_depth: int = None,
 
     _tt.clear()
 
-    legal_moves = get_legal_moves(state)
+    forcing = get_forcing_moves(state)
+    if forcing:
+        if len(forcing) == 1:
+            return forcing[0]
+        legal_moves = forcing
+    else:
+        legal_moves = get_legal_moves(state)
+        
     if not legal_moves:
         return None
-
-    # Greedy capture (luôn đúng ở top level — double-cross xét trong minimax)
-    for move in legal_moves:
-        if would_complete_box(state, move) > 0:
-            return move
-
+        
     if len(legal_moves) == 1:
         return legal_moves[0]
 
