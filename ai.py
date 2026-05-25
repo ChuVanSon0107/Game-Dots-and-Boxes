@@ -260,6 +260,7 @@ def evaluate(state: GameState, ai_player: int):
 
     capturable = 0
     boxes_2 = 0
+    boxes_safe = 0
 
     for r in range(state.rows):
         for c in range(state.cols):
@@ -269,6 +270,8 @@ def evaluate(state: GameState, ai_player: int):
                     capturable += 1
                 elif ec == 2:
                     boxes_2 += 1
+                else:
+                    boxes_safe += 1
 
     if state.current_player == ai_player:
         cap_score = capturable * 50
@@ -277,7 +280,15 @@ def evaluate(state: GameState, ai_player: int):
 
     chain_score = _evaluate_chains(state, ai_player)
 
-    return score_diff * 100 + cap_score + chain_score * 15 - boxes_2 * 3
+    # Tự động điều chỉnh trọng số Nimstring dựa trên giai đoạn game
+    if boxes_safe > 2:
+        chain_weight = 1   # Giữa game: Ưu tiên ăn hộp thực tế
+    elif boxes_safe > 0:
+        chain_weight = 5   # Sắp vào Endgame: Bắt đầu cân nhắc Parity
+    else:
+        chain_weight = 15  # Endgame thực sự: Áp dụng mạnh mẽ Chain Theory
+
+    return score_diff * 100 + cap_score + chain_score * chain_weight - boxes_2 * 3
 
 
 def _analyze_chains_and_loops(state: GameState):
