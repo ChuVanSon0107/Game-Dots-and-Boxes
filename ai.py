@@ -251,6 +251,30 @@ def _is_edge_drawn(state, move):
 #  Heuristic evaluation
 # ============================================================
 
+def _count_double_edge_pairs(state: GameState):
+    """
+    Đếm số cặp ô 2 cạnh kề nhau (cùng hàng hoặc cùng cột)
+    qua cạnh chưa vẽ. Đây là dấu hiệu cực kỳ nguy hiểm: 
+    ai đi vào 1 ô sẽ cho đối thủ ăn ô kia.
+    """
+    count = 0
+    for r in range(state.rows):
+        for c in range(state.cols):
+            if state.boxes[r][c] != 0 or state.edges_count[r][c] != 2:
+                continue
+            # Check phải
+            if (c + 1 < state.cols and state.boxes[r][c + 1] == 0 
+                    and state.edges_count[r][c + 1] == 2):
+                if not state.v_edges[r][c + 1]:
+                    count += 1
+            # Check dưới
+            if (r + 1 < state.rows and state.boxes[r + 1][c] == 0 
+                    and state.edges_count[r + 1][c] == 2):
+                if not state.h_edges[r + 1][c]:
+                    count += 1
+    return count
+
+
 def evaluate(state: GameState, ai_player: int):
     """Hàm đánh giá trạng thái cho Minimax."""
     if ai_player == 1:
@@ -288,7 +312,11 @@ def evaluate(state: GameState, ai_player: int):
     else:
         chain_weight = 225  # Endgame thực sự: Áp dụng mạnh mẽ Chain Theory
 
-    return score_diff * 100 + cap_score + chain_score * chain_weight - boxes_2 * 20
+    # Phạt nặng cặp ô 2 cạnh kề nhau (double-edge pairs)
+    double_edge_pairs = _count_double_edge_pairs(state)
+
+    return (score_diff * 100 + cap_score + chain_score * chain_weight 
+            - boxes_2 * 20 - double_edge_pairs * 30)
 
 
 def _analyze_chains_and_loops(state: GameState):
