@@ -282,13 +282,13 @@ def evaluate(state: GameState, ai_player: int):
 
     # Tự động điều chỉnh trọng số Nimstring dựa trên giai đoạn game
     if boxes_safe > 2:
-        chain_weight = 1   # Giữa game: Ưu tiên ăn hộp thực tế
+        chain_weight = 15   # Giữa game: Ưu tiên ăn hộp thực tế
     elif boxes_safe > 0:
-        chain_weight = 5   # Sắp vào Endgame: Bắt đầu cân nhắc Parity
+        chain_weight = 75   # Sắp vào Endgame: Bắt đầu cân nhắc Parity
     else:
-        chain_weight = 15  # Endgame thực sự: Áp dụng mạnh mẽ Chain Theory
+        chain_weight = 225  # Endgame thực sự: Áp dụng mạnh mẽ Chain Theory
 
-    return score_diff * 100 + cap_score + chain_score * chain_weight - boxes_2 * 3
+    return score_diff * 100 + cap_score + chain_score * chain_weight - boxes_2 * 20
 
 
 def _analyze_chains_and_loops(state: GameState):
@@ -421,7 +421,7 @@ def _evaluate_chains(state: GameState, ai_player: int):
     # Nhân trọng số 15. Vì trong hàm evaluate() đang có đoạn `chain_score * 15`
     # Mỗi box lợi thế ở đây sẽ đóng góp: 1 * 15 * 15 = 225 điểm heuristic 
     # (vượt trội hơn hẳn so với cap_score thông thường)
-    return ai_chain_diff * 15
+    return ai_chain_diff
 
 
 # ============================================================
@@ -553,10 +553,12 @@ def _get_adaptive_depth(state: GameState, base_depth: int):
     if remaining <= 10:
         return min(remaining, 22)
     elif remaining <= 16:
-        return base_depth + 4
+        return base_depth + 6
     elif remaining <= 22:
-        return base_depth + 2
+        return base_depth + 4
     elif remaining <= 30:
+        return base_depth + 2
+    elif remaining <= 40:
         return base_depth + 1
     else:
         return base_depth
@@ -576,16 +578,33 @@ def get_best_move(state: GameState, ai_player: int = 2, base_depth: int = None,
     import time
     start_time = time.time()
 
+    # # Tự động điều chỉnh time_limit theo giai đoạn game
+    # if time_limit is None:
+    #     total_moves = state.moves_remaining
+    #     total_boxes = state.rows * state.cols
+    #     if total_boxes <= 9:
+    #         time_limit = 2.0        # Bàn nhỏ: đủ nhanh
+    #     elif total_moves <= 12:
+    #         time_limit = 5.0        # Sát endgame: cho nhiều thời gian để tính chính xác
+    #     elif total_moves <= 25:
+    #         time_limit = 3.5        # Gần endgame
+    #     elif total_moves <= 40:
+    #         time_limit = 2.5        # Chuyển tiếp mid→late
+    #     elif total_moves <= 60:
+    #         time_limit = 2.0        # Midgame
+    #     else:
+    #         time_limit = 1.5        # Đầu game: nhiều nước, không cần nghĩ sâu
+
     if base_depth is None:
         total_boxes = state.rows * state.cols
         if total_boxes <= 9:
-            base_depth = 6
+            base_depth = 10
         elif total_boxes <= 16:
-            base_depth = 4
+            base_depth = 8
         elif total_boxes <= 25:
-            base_depth = 3
+            base_depth = 6
         elif total_boxes <= 49:
-            base_depth = 2
+            base_depth = 4
         else:
             base_depth = 2
 
