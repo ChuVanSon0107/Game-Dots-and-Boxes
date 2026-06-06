@@ -323,6 +323,62 @@ def _get_exit_edge(state, r, c, shared_edge):
     return None
 
 
+
+def _component_touched_by_move(state: GameState, move: Move, component):
+    component_set = set(component)
+    return any(box in component_set for box in get_affected_boxes(move, state.rows, state.cols))
+
+
+def _capturable_boxes_after_move(state: GameState, move: Move, component):
+    component_set = set(component)
+    undo_info = apply_move(state, move)
+    capturable = set()
+    for chain in _find_capturable_chains(state):
+        for box in chain:
+            if box in component_set:
+                capturable.add(box)
+    undo_move(state, move, undo_info)
+    return capturable
+
+
+def _get_sacrifice_moves(state: GameState, chain):
+    """
+    Find hard-hearted handout moves for a capturable component.
+
+    Open chains hand out the last 2 boxes. Opened loops / closed chains
+    hand out the last 4 boxes. A sacrifice move must not score now; it
+    should make the remaining component capturable for the opponent.
+    """
+    n = len(chain)
+    if n < 2:
+        return []
+
+    three_edge_boxes = sum(
+        1 for r, c in chain
+        if state.boxes[r][c] == 0 and state.edges_count[r][c] == 3
+    )
+    handout_size = 4 if three_edge_boxes >= 2 else 2
+    if n != handout_size:
+        return []
+
+    candidates = []
+    for move in get_legal_moves(state):
+        if would_complete_box(state, move) > 0:
+            continue
+        if not _component_touched_by_move(state, move, chain):
+            continue
+
+        capturable = _capturable_boxes_after_move(state, move, chain)
+        if len(capturable) >= handout_size:
+            candidates.append(move)
+
+    candidates.sort(key=lambda move: (
+        -len(_capturable_boxes_after_move(state, move, chain)),
+        would_create_third_edge(state, move),
+        _move_key(move),
+    ))
+    return candidates
+
 # ============================================================
 #  Forcing Moves: Greedy Capture + Double-Cross
 # ============================================================
@@ -348,23 +404,11 @@ def get_forcing_moves(state: GameState):
         if not chain:
             continue
 
-        n = len(chain)
         first_box = chain[0]
-        last_box = chain[-1]
-        is_closed = (state.edges_count[last_box[0]][last_box[1]] == 3) and (n > 1)
-
         add_move(_get_missing_edge(state, first_box[0], first_box[1]))
 
-        if is_closed and n == 4:
-            sac_a = chain[1]
-            sac_b = chain[2]
-            add_move(_get_shared_edge(state, sac_a[0], sac_a[1], sac_b[0], sac_b[1]))
-        elif not is_closed and n == 2:
-            sac_a = chain[0]
-            sac_b = chain[1]
-            shared = _get_shared_edge(state, sac_a[0], sac_a[1], sac_b[0], sac_b[1])
-            if shared:
-                add_move(_get_exit_edge(state, sac_b[0], sac_b[1], shared))
+        for sacrifice_move in _get_sacrifice_moves(state, chain):
+            add_move(sacrifice_move)
 
     # Fallback: never miss an immediately capturable box if the chain walk
     # above was blocked by an unusual component shape.
@@ -374,7 +418,6 @@ def get_forcing_moves(state: GameState):
                 add_move(_get_missing_edge(state, r, c))
 
     return moves
-
 
 def _is_edge_drawn(state, move):
     """Kiểm tra cạnh đã được vẽ chưa."""
