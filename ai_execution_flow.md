@@ -1,47 +1,47 @@
-﻿# Luong chay logic AI Bot - Dots and Boxes
+# Luồng chạy logic AI Bot - Dots and Boxes
 
-Tai lieu nay mo ta thu tu thuc thi cua AI tu khi UI yeu cau mot nuoc di cho den khi AI tra ve doi tuong `Move`.
+Tài liệu này mô tả thứ tự thực thi của AI từ khi UI yêu cầu một nước đi cho đến khi AI trả về đối tượng `Move`.
 
-## 1. Tong quan luong chay
+## 1. Tổng quan luồng chạy
 
 ```text
 UI (_handle_ai_turn)
     -> copy.deepcopy(GameState)
-    -> background thread goi ai.get_best_move()
-        -> khoi tao timer, deadline, depth
-        -> tim forcing moves
-        -> tao danh sach candidate moves
+    -> background thread gọi ai.get_best_move()
+        -> khởi tạo timer, deadline, depth
+        -> tìm forcing moves
+        -> tạo danh sách candidate moves
         -> iterative deepening
             -> minimax(depth = 1)
             -> minimax(depth = 2)
-            -> ... den max_depth hoac het gio
-        -> tra ve best_move
-    -> UI nhan ai_move_pending
-    -> UI apply move that len board
+            -> ... đến max_depth hoặc hết giờ
+        -> trả về best_move
+    -> UI nhận ai_move_pending
+    -> UI apply move thật lên board
 ```
 
-## 2. UI goi AI
+## 2. UI gọi AI
 
-Trong `ui.py`, khi den luot bot, UI khong tinh truc tiep tren main thread. Thay vao do:
+Trong `ui.py`, khi đến lượt bot, UI không tính trực tiếp trên main thread. Thay vào đó:
 
-1. Kiem tra game chua ket thuc va `current_player` dung la AI.
-2. Tao ban sao cua game state bang `copy.deepcopy()`.
-3. Chay thread nen `_ai_compute_worker`.
-4. Thread nen goi:
+1. Kiểm tra game chưa kết thúc và `current_player` đúng là AI.
+2. Tạo bản sao của game state bằng `copy.deepcopy()`.
+3. Chạy thread nền `_ai_compute_worker`.
+4. Thread nền gọi:
 
 ```python
 ai.get_best_move(state_copy, ai_player=ai_player)
 ```
 
-Cach nay giup Pygame van render duoc man hinh trong luc AI dang suy nghi.
+Cách này giúp Pygame vẫn render được màn hình trong lúc AI đang suy nghĩ.
 
 ## 3. Entry point: `get_best_move()`
 
-`get_best_move()` la API cong khai cua AI.
+`get_best_move()` là API công khai của AI.
 
-### 3.1. Khoi tao thoi gian
+### 3.1. Khởi tạo thời gian
 
-Dau tien AI tao deadline:
+Đầu tiên AI tạo deadline:
 
 ```python
 start_time = time.perf_counter()
@@ -49,77 +49,77 @@ _search_deadline = start_time + time_limit
 _search_timed_out = False
 ```
 
-Deadline nay duoc dung ca trong vong iterative deepening va trong de quy `minimax()`.
+Deadline này được dùng cả trong vòng iterative deepening và trong đệ quy `minimax()`.
 
-### 3.2. Chon base depth
+### 3.2. Chọn base depth
 
-Neu khong truyen `base_depth`, AI chon theo so o:
+Nếu không truyền `base_depth`, AI chọn theo số ô:
 
 ```text
-<= 9 o   -> base_depth = 8
-<= 16 o  -> base_depth = 6
-<= 25 o  -> base_depth = 5
-<= 36 o  -> base_depth = 4
-> 36 o   -> base_depth = 3
+<= 9 ô   -> base_depth = 8
+<= 16 ô  -> base_depth = 6
+<= 25 ô  -> base_depth = 5
+<= 36 ô  -> base_depth = 4
+> 36 ô   -> base_depth = 3
 ```
 
-Ban lon hon se co base depth nho hon de tranh no nhanh.
+Bàn lớn hơn sẽ có base depth nhỏ hơn để tránh nổ nhánh.
 
-### 3.3. Xoa transposition table
+### 3.3. Xóa transposition table
 
-Moi lan AI tinh mot nuoc moi, `_tt.clear()` duoc goi de tranh dung ket qua cu khong con phu hop voi luot hien tai.
+Mỗi lần AI tính một nước mới, `_tt.clear()` được gọi để tránh dùng kết quả cũ không còn phù hợp với lượt hiện tại.
 
-### 3.4. Tim forcing moves
+### 3.4. Tìm forcing moves
 
-AI goi:
+AI gọi:
 
 ```python
 forcing = get_forcing_moves(state)
 ```
 
-Neu co forcing moves, danh sach candidate ban dau la forcing moves.
+Nếu có forcing moves, danh sách candidate ban đầu là forcing moves.
 
-Neu khong co forcing move, AI lay toan bo legal moves roi dua qua `_order_moves()`:
+Nếu không có forcing move, AI lấy toàn bộ legal moves rồi đưa qua `_order_moves()`:
 
 ```python
 legal_moves = _order_moves(state, get_legal_moves(state))
 ```
 
-Tai day AI da loc theo pha safe/risky, khong phai dem tat ca canh hop le vao minimax.
+Tại đây AI đã lọc theo pha safe/risky, không đem tất cả cạnh hợp lệ vào minimax.
 
-### 3.5. Xu ly truong hop dac biet
+### 3.5. Xử lý trường hợp đặc biệt
 
-- Neu khong co legal move, tra ve `None`.
-- Neu chi co mot move, tra ve move do.
-- Neu co nhieu move, bat dau iterative deepening.
+- Nếu không có legal move, trả về `None`.
+- Nếu chỉ có một move, trả về move đó.
+- Nếu có nhiều move, bắt đầu iterative deepening.
 
 ## 4. Iterative deepening
 
-AI tinh `max_depth` bang `_get_adaptive_depth()`.
+AI tính `max_depth` bằng `_get_adaptive_depth()`.
 
-Sau do chay:
+Sau đó chạy:
 
 ```python
 for d in range(1, max_depth + 1):
     score, move = minimax(state, d, -math.inf, math.inf, ai_player)
 ```
 
-Sau moi vong:
+Sau mỗi vòng:
 
-1. Neu timeout trong minimax, dung va giu best move cua vong truoc.
-2. Neu co move moi, cap nhat `best_move`.
-3. Neu `abs(score) >= 9000`, xem nhu thay ket qua rat manh va dung.
-4. Neu uoc luong depth tiep theo vuot `time_limit`, dung.
+1. Nếu timeout trong minimax, dừng và giữ best move của vòng trước.
+2. Nếu có move mới, cập nhật `best_move`.
+3. Nếu `abs(score) >= 9000`, xem như thấy kết quả rất mạnh và dừng.
+4. Nếu ước lượng depth tiếp theo vượt `time_limit`, dừng.
 
-Ket qua cuoi cung cua `get_best_move()` la `best_move` tot nhat da tim duoc trong thoi gian cho phep.
+Kết quả cuối cùng của `get_best_move()` là `best_move` tốt nhất đã tìm được trong thời gian cho phép.
 
-## 5. Ham `minimax()`
+## 5. Hàm `minimax()`
 
-`minimax()` la ham de quy tim nuoc toi uu trong cay game.
+`minimax()` là hàm đệ quy tìm nước tối ưu trong cây game.
 
-### 5.1. Kiem tra timeout
+### 5.1. Kiểm tra timeout
 
-Ngay dau ham:
+Ngay đầu hàm:
 
 ```python
 if _time_up():
@@ -127,202 +127,202 @@ if _time_up():
     return evaluate(state, ai_player), None
 ```
 
-Dieu nay giup AI thoat khoi de quy sau khi het thoi gian.
+Điều này giúp AI thoát khỏi đệ quy sau khi hết thời gian.
 
-### 5.2. Kiem tra terminal
+### 5.2. Kiểm tra terminal
 
-Neu het move:
+Nếu hết move:
 
 ```python
 return score_diff * 10000, None
 ```
 
-He so 10000 lam trang thai thang/thua that su quan trong hon heuristic.
+Hệ số 10000 làm trạng thái thắng/thua thật sự quan trọng hơn heuristic.
 
 ### 5.3. Sinh forcing moves
 
-AI goi `get_forcing_moves()` o moi node.
+AI gọi `get_forcing_moves()` ở mỗi node.
 
-Neu co forcing move, minimax chi xet cac move nay, vi trong Dots and Boxes cac o 3 canh va chain dang mo la phan bat buoc can xu ly truoc.
+Nếu có forcing move, minimax chỉ xét các move này, vì trong Dots and Boxes các ô 3 cạnh và chain đang mở là phần cần xử lý trước.
 
-### 5.4. Dieu kien dung heuristic
+### 5.4. Điều kiện dừng heuristic
 
-Neu `depth <= 0` va khong co forcing move:
+Nếu `depth <= 0` và không có forcing move:
 
 ```python
 return evaluate(state, ai_player), None
 ```
 
-Neu van co forcing move, AI tiep tuc search de xu ly het chuoi capture quan trong.
+Nếu vẫn có forcing move, AI tiếp tục search để xử lý hết chuỗi capture quan trọng.
 
-### 5.5. Tra cuu transposition table
+### 5.5. Tra cứu transposition table
 
-AI tao key:
+AI tạo key:
 
 ```python
 (h_edges, v_edges, boxes, current_player, score_player1, score_player2)
 ```
 
-Neu trang thai da duoc tinh o depth bang hoac sau hon, AI co the dung lai diem da cache hoac thu hep cua so alpha/beta.
+Nếu trạng thái đã được tính ở depth bằng hoặc sâu hơn, AI có thể dùng lại điểm đã cache hoặc thu hẹp cửa sổ alpha/beta.
 
-### 5.6. Xac dinh max node hay min node
+### 5.6. Xác định max node hay min node
 
 ```python
 is_max = (state.current_player == ai_player)
 ```
 
-- Neu `is_max == True`, AI chon diem cao nhat.
-- Neu `is_max == False`, AI gia dinh doi thu chon diem thap nhat cho AI.
+- Nếu `is_max == True`, AI chọn điểm cao nhất.
+- Nếu `is_max == False`, AI giả định đối thủ chọn điểm thấp nhất cho AI.
 
-Khong dung depth chan/le de xac dinh max/min, vi trong Dots and Boxes an o se duoc di tiep.
+Không dùng depth chẵn/lẻ để xác định max/min, vì trong Dots and Boxes ăn ô sẽ được đi tiếp.
 
-### 5.7. Chon danh sach move de search
+### 5.7. Chọn danh sách move để search
 
-Neu co forcing move:
+Nếu có forcing move:
 
 ```python
 ordered = forcing_moves
 ```
 
-Neu khong:
+Nếu không:
 
 ```python
 legal_moves = get_legal_moves(state)
 ordered = _order_moves(state, legal_moves, tt_best_key)
 ```
 
-`_order_moves()` co the cat bot risky moves neu van con safe moves.
+`_order_moves()` có thể cắt bot risky moves nếu vẫn còn safe moves.
 
-### 5.8. Thu tung move
+### 5.8. Thử từng move
 
-Voi moi move:
+Với mỗi move:
 
-1. Kiem tra timeout.
+1. Kiểm tra timeout.
 2. `apply_move(state, move)`.
-3. Tinh `next_depth`:
-   - Neu sau khi apply, `current_player` van la nguoi vua di, nghia la move an duoc o, depth khong giam.
-   - Neu doi luot, depth giam 1.
-4. Goi de quy `minimax()`.
+3. Tính `next_depth`:
+   - Nếu sau khi apply, `current_player` vẫn là người vừa đi, nghĩa là move ăn được ô, depth không giảm.
+   - Nếu đổi lượt, depth giảm 1.
+4. Gọi đệ quy `minimax()`.
 5. `undo_move(state, move, undo_info)`.
-6. Cap nhat best value va best move.
-7. Cap nhat alpha/beta.
-8. Neu `alpha >= beta`, cat nhanh.
+6. Cập nhật best value và best move.
+7. Cập nhật alpha/beta.
+8. Nếu `alpha >= beta`, cắt nhánh.
 
-## 6. Luong cua `_order_moves()`
+## 6. Luồng của `_order_moves()`
 
-`_order_moves()` nhan mot danh sach move va tra ve danh sach da loc/sap xep.
+`_order_moves()` nhận một danh sách move và trả về danh sách đã lọc/sắp xếp.
 
 ```text
 _order_moves()
-    -> tim capture moves
-        -> neu co: sap xep capture va return
-    -> tim safe moves
-        -> neu co: chi giu safe moves, sap xep bang _safe_move_score
-    -> neu het safe:
-        -> sap xep risky moves bang _risky_move_score
-    -> dedupe va gioi han so candidate
+    -> tìm capture moves
+        -> nếu có: sắp xếp capture và return
+    -> tìm safe moves
+        -> nếu có: chỉ giữ safe moves, sắp xếp bằng _safe_move_score
+    -> nếu hết safe:
+        -> sắp xếp risky moves bằng _risky_move_score
+    -> dedupe và giới hạn số candidate
 ```
 
-### 6.1. Khi co capture moves
+### 6.1. Khi có capture moves
 
-AI uu tien nhung move an duoc nhieu o hon:
+AI ưu tiên những move ăn được nhiều ô hơn:
 
 ```python
 captures.sort(key=lambda move: (-would_complete_box(...), _risky_move_score(...)))
 ```
 
-### 6.2. Khi con safe moves
+### 6.2. Khi còn safe moves
 
-AI chi giu safe moves. Day la pha dau/midgame quan trong nhat: khong tao o 3 canh cho doi thu neu chua bat buoc.
+AI chỉ giữ safe moves. Đây là pha đầu/midgame quan trọng nhất: không tạo ô 3 cạnh cho đối thủ nếu chưa bắt buộc.
 
-### 6.3. Khi het safe moves
+### 6.3. Khi hết safe moves
 
-AI buoc phai mo chuoi. Luc nay risky moves duoc sap xep theo `_estimate_opened_chain_loss()` de mo chuoi it thiet hai nhat.
+AI buộc phải mở chuỗi. Lúc này risky moves được sắp xếp theo `_estimate_opened_chain_loss()` để mở chuỗi ít thiệt hại nhất.
 
-## 7. Luong cua `get_forcing_moves()`
+## 7. Luồng của `get_forcing_moves()`
 
 ```text
 get_forcing_moves()
     -> _find_capturable_chains()
-    -> voi moi chain:
-        -> them move an o dau chain
-        -> neu chain toi han double-cross:
-            -> them move sacrifice
-    -> fallback quet moi o 3 canh
+    -> với mỗi chain:
+        -> thêm move ăn ô đầu chain
+        -> nếu chain tới hạn double-cross:
+            -> thêm move sacrifice
+    -> fallback quét mọi ô 3 cạnh
     -> return moves
 ```
 
-Ham nay dung set `seen` de tranh them trung move.
+Hàm này dùng set `seen` để tránh thêm trùng move.
 
-Forcing moves khong duoc return ngay o top-level, ma van duoc dua vao minimax de AI nhin tiep hau qua sau do.
+Forcing moves không được return ngay ở top-level, mà vẫn được đưa vào minimax để AI nhìn tiếp hậu quả sau đó.
 
-## 8. Luong cua `_find_capturable_chains()`
+## 8. Luồng của `_find_capturable_chains()`
 
 ```text
 _find_capturable_chains()
-    -> quet tung box
-    -> neu box chua bi an va edges_count == 3:
-        -> bat dau chain
-        -> lan sang box ke qua canh chua ve
-        -> chi lan sang box co edges_count >= 2
-    -> return danh sach chain
+    -> quét từng box
+    -> nếu box chưa bị ăn và edges_count == 3:
+        -> bắt đầu chain
+        -> lan sang box kế qua cạnh chưa vẽ
+        -> chỉ lan sang box có edges_count >= 2
+    -> return danh sách chain
 ```
 
-Ham nay phuc vu cac tinh huong dang co o co the an ngay.
+Hàm này phục vụ các tình huống đang có ô có thể ăn ngay.
 
-## 9. Luong cua `_analyze_chains_and_loops()`
+## 9. Luồng của `_analyze_chains_and_loops()`
 
 ```text
 _analyze_chains_and_loops()
-    -> quet tung box chua bi an co edges_count >= 2
-    -> DFS/BFS qua cac canh chua ve
-    -> tao connected component
-    -> dem neighbor cua moi box trong component
-    -> component co moi box dung 2 neighbor va dai >= 4: closed loop
-    -> component khong phai loop va dai >= 3: open chain
+    -> quét từng box chưa bị ăn có edges_count >= 2
+    -> DFS/BFS qua các cạnh chưa vẽ
+    -> tạo connected component
+    -> đếm neighbor của mỗi box trong component
+    -> component có mọi box đúng 2 neighbor và dài >= 4: closed loop
+    -> component không phải loop và dài >= 3: open chain
     -> return (open_chains, closed_loops)
 ```
 
-Ham nay khong phai de chon move truc tiep, ma de cham diem endgame trong `_evaluate_chains()`.
+Hàm này không phải để chọn move trực tiếp, mà để chấm điểm endgame trong `_evaluate_chains()`.
 
-## 10. Luong cua `evaluate()`
+## 10. Luồng của `evaluate()`
 
-`evaluate()` duoc goi khi search cham depth gioi han hoac timeout.
+`evaluate()` được gọi khi search chạm depth giới hạn hoặc timeout.
 
 ```text
 evaluate()
-    -> tinh score_diff
-    -> dem capturable, boxes_2, boxes_safe
-    -> tinh cap_score
-    -> tinh chain_score bang _evaluate_chains()
-    -> chon chain_weight theo boxes_safe
-    -> tinh mobility_score
-    -> return tong diem heuristic
+    -> tính score_diff
+    -> đếm capturable, boxes_2, boxes_safe
+    -> tính cap_score
+    -> tính chain_score bằng _evaluate_chains()
+    -> chọn chain_weight theo boxes_safe
+    -> tính mobility_score
+    -> return tổng điểm heuristic
 ```
 
-Diem duong nghia la tot cho AI, diem am nghia la tot cho doi thu.
+Điểm dương nghĩa là tốt cho AI, điểm âm nghĩa là tốt cho đối thủ.
 
-## 11. Luong timeout va tra ket qua
+## 11. Luồng timeout và trả kết quả
 
-AI co hai lop quan ly thoi gian:
+AI có hai lớp quản lý thời gian:
 
-1. Ngoai `get_best_move()`: uoc luong xem co nen bat dau depth tiep theo khong.
-2. Trong `minimax()`: dung `_time_up()` de thoat khoi de quy neu da qua deadline.
+1. Ngoài `get_best_move()`: ước lượng xem có nên bắt đầu depth tiếp theo không.
+2. Trong `minimax()`: dùng `_time_up()` để thoát khỏi đệ quy nếu đã qua deadline.
 
-Neu timeout xay ra trong depth hien tai, AI khong tin ket qua chua hoan tat cua depth do. No dung lai va tra `best_move` cua depth truoc.
+Nếu timeout xảy ra trong depth hiện tại, AI không tin kết quả chưa hoàn tất của depth đó. Nó dừng lại và trả `best_move` của depth trước.
 
-## 12. UI nhan va apply move
+## 12. UI nhận và apply move
 
-Sau khi `get_best_move()` tra ve:
+Sau khi `get_best_move()` trả về:
 
-1. Worker thread gan move vao `ai_move_pending`.
-2. Main loop cua UI thay `ai_move_pending != None`.
-3. UI doi mot khoang delay ngan de nguoi choi quan sat.
-4. UI goi `_apply_move_with_effects(move)`.
-5. `rules.apply_move()` cap nhat board that.
-6. Neu AI an duoc o, AI tiep tuc duoc di; neu khong, luot chuyen ve nguoi choi.
+1. Worker thread gán move vào `ai_move_pending`.
+2. Main loop của UI thấy `ai_move_pending != None`.
+3. UI đợi một khoảng delay ngắn để người chơi quan sát.
+4. UI gọi `_apply_move_with_effects(move)`.
+5. `rules.apply_move()` cập nhật board thật.
+6. Nếu AI ăn được ô, AI tiếp tục được đi; nếu không, lượt chuyển về người chơi.
 
-## 13. Tom tat bang pseudo-code
+## 13. Tóm tắt bằng pseudo-code
 
 ```python
 def get_best_move(state):
