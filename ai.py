@@ -80,14 +80,50 @@ def get_safe_moves(state: GameState):
 
 
 
+
+def _count_safe_moves(state: GameState):
+    count = 0
+    for move in get_legal_moves(state):
+        if would_create_third_edge(state, move) == 0:
+            count += 1
+    return count
+
+
+def _best_forced_opener_loss(state: GameState):
+    best_loss = math.inf
+    for move in get_legal_moves(state):
+        if would_create_third_edge(state, move) > 0:
+            best_loss = min(best_loss, _estimate_opened_chain_loss(state, move))
+    return 0 if best_loss == math.inf else best_loss
+
+
+def _safe_pressure_score(state: GameState, move: Move):
+    """Prefer safe moves that leave the opponent close to opening a chain."""
+    mover = state.current_player
+    undo_info = apply_move(state, move)
+
+    opponent_safe_moves = _count_safe_moves(state)
+    forced_opener_loss = 0
+    if opponent_safe_moves == 0 and not get_forcing_moves(state):
+        forced_opener_loss = _best_forced_opener_loss(state)
+
+    chain_advantage = _evaluate_chains(state, mover)
+    undo_move(state, move, undo_info)
+
+    return (
+        opponent_safe_moves,
+        -forced_opener_loss,
+        -chain_advantage,
+    )
+
 def _candidate_limit(state: GameState):
     """Keep alpha-beta practical on large boards after strategic filtering."""
     total_boxes = state.rows * state.cols
     if total_boxes <= 16:
-        return 28
+        return 32
     if total_boxes <= 36:
-        return 18
-    return 14
+        return 24
+    return 18
 
 
 def _move_center_distance(state: GameState, move: Move):
@@ -106,7 +142,7 @@ def _safe_move_score(state: GameState, move: Move):
     ]
     creates_two_edge_boxes = sum(1 for count in affected_counts if count == 1)
     touches_empty_boxes = sum(1 for count in affected_counts if count == 0)
-    return (
+    return _safe_pressure_score(state, move) + (
         creates_two_edge_boxes,
         len(affected_counts),
         -touches_empty_boxes,
@@ -124,12 +160,22 @@ def _estimate_opened_chain_loss(state: GameState, move: Move):
     return loss
 
 
+def _post_move_chain_advantage(state: GameState, move: Move):
+    mover = state.current_player
+    undo_info = apply_move(state, move)
+    advantage = _evaluate_chains(state, mover)
+    undo_move(state, move, undo_info)
+    return advantage
+
+
 def _risky_move_score(state: GameState, move: Move):
     third_edges = would_create_third_edge(state, move)
     return (
         _estimate_opened_chain_loss(state, move),
+        -_post_move_chain_advantage(state, move),
         third_edges,
-        _safe_move_score(state, move),
+        _move_center_distance(state, move),
+        _move_key(move),
     )
 
 
