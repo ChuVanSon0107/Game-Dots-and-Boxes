@@ -764,11 +764,11 @@ def _get_adaptive_depth(state: GameState, base_depth: int):
     elif remaining <= 16:
         return base_depth + 4
     elif remaining <= 22:
-        return base_depth + 2
+        return base_depth + 3
     elif remaining <= 30:
-        return base_depth + 1
+        return base_depth + 2
     else:
-        return base_depth
+        return base_depth + 1
 
 
 # ============================================================
@@ -776,7 +776,7 @@ def _get_adaptive_depth(state: GameState, base_depth: int):
 # ============================================================
 
 def get_best_move(state: GameState, ai_player: int = 2, base_depth: int = None,
-                   time_limit: float = 3.0):
+                   time_limit: float = 8.0):
     """
     Tìm nước đi tốt nhất cho AI bằng Minimax + Alpha-Beta Pruning
     với Double-Cross strategy.
@@ -789,15 +789,15 @@ def get_best_move(state: GameState, ai_player: int = 2, base_depth: int = None,
     if base_depth is None:
         total_boxes = state.rows * state.cols
         if total_boxes <= 9:
-            base_depth = 8
+            base_depth = 25
         elif total_boxes <= 16:
-            base_depth = 6
+            base_depth = 23
         elif total_boxes <= 25:
-            base_depth = 5
+            base_depth = 21
         elif total_boxes <= 36:
-            base_depth = 4
+            base_depth = 19
         else:
-            base_depth = 3
+            base_depth = 17
 
     _tt.clear()
 
