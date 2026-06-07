@@ -197,6 +197,85 @@ def _dedupe_and_limit(moves, limit, preferred_key=None):
     if preferred:
         ordered.insert(0, preferred)
     return ordered[:limit]
+
+def _greedy_capture_moves(state: GameState):
+    moves = [move for move in get_legal_moves(state) if would_complete_box(state, move) > 0]
+    moves.sort(key=lambda move: (-would_complete_box(state, move), _move_key(move)))
+    return moves
+
+
+def _play_greedy_forced_captures(state: GameState):
+    undo_stack = []
+    while True:
+        captures = _greedy_capture_moves(state)
+        if not captures:
+            break
+        move = captures[0]
+        undo_info = apply_move(state, move)
+        undo_stack.append((move, undo_info))
+    return undo_stack
+
+
+def _undo_forced_capture_stack(state: GameState, undo_stack):
+    for move, undo_info in reversed(undo_stack):
+        undo_move(state, move, undo_info)
+
+
+def _terminal_score(state: GameState, ai_player: int):
+    if ai_player == 1:
+        return (state.score_player1 - state.score_player2) * 10000
+    return (state.score_player2 - state.score_player1) * 10000
+
+
+def _control_after_forced_resolution(state: GameState, ai_player: int):
+    if is_terminal(state):
+        return _terminal_score(state, ai_player)
+
+    safe_moves = _count_safe_moves(state)
+    if safe_moves == 0:
+        opener_loss = _best_forced_opener_loss(state)
+        if opener_loss < math.inf:
+            pressure = opener_loss * 180
+            return pressure if state.current_player != ai_player else -pressure
+
+    open_chains, closed_loops = _analyze_chains_and_loops(state)
+    region_count = len(open_chains) + len(closed_loops)
+    if region_count == 0:
+        return 0
+
+    control_bias = _evaluate_chains(state, ai_player) * 8
+    turn_bias = 45 * region_count
+    if state.current_player == ai_player:
+        return control_bias - turn_bias
+    return control_bias + turn_bias
+
+
+def _resolved_forcing_score(state: GameState, move: Move, ai_player: int):
+    """
+    Compare greedy-vs-handout locally by resolving immediate forced captures.
+
+    This is intentionally shallower than minimax but more reliable at critical
+    handout points on large boards where the full search may time out.
+    """
+    is_handout = _is_sacrifice_move(state, move)
+    undo_info = apply_move(state, move)
+    undo_stack = _play_greedy_forced_captures(state)
+    score = evaluate(state, ai_player) + _control_after_forced_resolution(state, ai_player)
+    if is_handout and not is_terminal(state):
+        score += 120 if state.current_player != ai_player else -120
+    _undo_forced_capture_stack(state, undo_stack)
+    undo_move(state, move, undo_info)
+    return score
+
+
+def _order_forcing_moves(state: GameState, moves, ai_player: int):
+    is_max = state.current_player == ai_player
+    scored = [(_resolved_forcing_score(state, move, ai_player), move) for move in moves]
+    scored.sort(
+        key=lambda item: (item[0], -would_complete_box(state, item[1]), _move_key(item[1])),
+        reverse=is_max,
+    )
+    return [move for _, move in scored]
 # ============================================================
 #  Chain detection — Nền tảng cho Double-Cross
 # ============================================================
@@ -341,6 +420,14 @@ def _capturable_boxes_after_move(state: GameState, move: Move, component):
     return capturable
 
 
+def _handout_size_for_component(state: GameState, component):
+    three_edge_boxes = sum(
+        1 for r, c in component
+        if state.boxes[r][c] == 0 and state.edges_count[r][c] == 3
+    )
+    return 4 if three_edge_boxes >= 2 else 2
+
+
 def _get_sacrifice_moves(state: GameState, chain):
     """
     Find hard-hearted handout moves for a capturable component.
@@ -353,12 +440,8 @@ def _get_sacrifice_moves(state: GameState, chain):
     if n < 2:
         return []
 
-    three_edge_boxes = sum(
-        1 for r, c in chain
-        if state.boxes[r][c] == 0 and state.edges_count[r][c] == 3
-    )
-    handout_size = 4 if three_edge_boxes >= 2 else 2
-    if n != handout_size:
+    handout_size = _handout_size_for_component(state, chain)
+    if n < handout_size:
         return []
 
     candidates = []
@@ -369,7 +452,7 @@ def _get_sacrifice_moves(state: GameState, chain):
             continue
 
         capturable = _capturable_boxes_after_move(state, move, chain)
-        if len(capturable) >= handout_size:
+        if len(capturable) == handout_size:
             candidates.append(move)
 
     candidates.sort(key=lambda move: (
@@ -378,6 +461,15 @@ def _get_sacrifice_moves(state: GameState, chain):
         _move_key(move),
     ))
     return candidates
+
+
+def _is_sacrifice_move(state: GameState, move: Move):
+    if would_complete_box(state, move) > 0:
+        return False
+    for chain in _find_capturable_chains(state):
+        if any(_move_key(move) == _move_key(candidate) for candidate in _get_sacrifice_moves(state, chain)):
+            return True
+    return False
 
 # ============================================================
 #  Forcing Moves: Greedy Capture + Double-Cross
@@ -690,7 +782,7 @@ def minimax(state: GameState, depth: int, alpha: float, beta: float,
     is_max = (state.current_player == ai_player)
 
     if forcing_moves:
-        ordered = forcing_moves
+        ordered = _order_forcing_moves(state, forcing_moves, ai_player)
     else:
         legal_moves = get_legal_moves(state)
         if not legal_moves:
@@ -764,11 +856,11 @@ def _get_adaptive_depth(state: GameState, base_depth: int):
     elif remaining <= 16:
         return base_depth + 4
     elif remaining <= 22:
-        return base_depth + 3
-    elif remaining <= 30:
         return base_depth + 2
-    else:
+    elif remaining <= 30:
         return base_depth + 1
+    else:
+        return base_depth
 
 
 # ============================================================
@@ -776,7 +868,7 @@ def _get_adaptive_depth(state: GameState, base_depth: int):
 # ============================================================
 
 def get_best_move(state: GameState, ai_player: int = 2, base_depth: int = None,
-                   time_limit: float = 8.0):
+                   time_limit: float = 4.0):
     """
     Tìm nước đi tốt nhất cho AI bằng Minimax + Alpha-Beta Pruning
     với Double-Cross strategy.
@@ -789,21 +881,21 @@ def get_best_move(state: GameState, ai_player: int = 2, base_depth: int = None,
     if base_depth is None:
         total_boxes = state.rows * state.cols
         if total_boxes <= 9:
-            base_depth = 25
+            base_depth = 8
         elif total_boxes <= 16:
-            base_depth = 23
+            base_depth = 6
         elif total_boxes <= 25:
-            base_depth = 21
+            base_depth = 5
         elif total_boxes <= 36:
-            base_depth = 19
+            base_depth = 4
         else:
-            base_depth = 17
+            base_depth = 3
 
     _tt.clear()
 
     forcing = get_forcing_moves(state)
     if forcing:
-        legal_moves = forcing
+        legal_moves = _order_forcing_moves(state, forcing, ai_player)
     else:
         legal_moves = _order_moves(state, get_legal_moves(state))
 
