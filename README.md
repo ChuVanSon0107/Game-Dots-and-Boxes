@@ -2,6 +2,20 @@
 
 Đây là project xây dựng game **Dots and Boxes** bằng Python/Pygame, có giao diện trực quan và bot AI chơi đối kháng với người dùng. AI được thiết kế để chơi trên nhiều kích thước bàn cờ, đặc biệt tập trung vào các chiến thuật quan trọng của Dots and Boxes như safe move, chain control, parity và sacrifice/hard-hearted handout ở cuối ván.
 
+## Thông tin học phần và nhóm thực hiện
+
+- **Học phần**: Nhập môn Trí tuệ nhân tạo
+- **Trường**: Đại học Bách khoa Hà Nội
+- **Đề tài**: Xây dựng AI chơi game Dots and Boxes
+- **Số thành viên**: 4
+
+| STT | Họ và tên | MSSV |
+|---:|---|---|
+| 1 | Chu Văn Sơn | 20235412 |
+| 2 | Nguyễn Đình Thủy | 20235437 |
+| 3 | Chu Tuấn Khanh | 20235349 |
+| 4 | Trần Chí Cường | 20235289 |
+
 ## 1. Giới thiệu trò chơi
 
 Dots and Boxes là trò chơi hai người trên một lưới các điểm. Mỗi lượt, người chơi vẽ một cạnh nối hai điểm liền kề. Nếu một người vẽ cạnh thứ tư để hoàn thành một ô vuông, người đó nhận điểm và được đi tiếp. Trò chơi kết thúc khi toàn bộ ô đã được chiếm; người có nhiều ô hơn là người thắng.
