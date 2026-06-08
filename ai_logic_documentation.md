@@ -1,15 +1,25 @@
-# Tài liệu mô tả logic AI Bot - Dots and Boxes
+# Tài liệu logic AI Bot - Dots and Boxes
+
+Tài liệu này giải thích logic hiện tại của AI trong file `ai.py`. Mục tiêu là để thành viên trong nhóm có thể đọc nhanh, hiểu đúng ý tưởng thuật toán và dùng làm nền tảng khi thuyết trình.
 
 ## 1. Mục tiêu của AI
 
-AI trong project được thiết kế để chơi Dots and Boxes trên nhiều kích thước bàn cờ, từ bàn nhỏ như 3x3, 4x4 đến bàn lớn hơn như 6x6, 7x7. Mục tiêu chính là chọn nước đi giúp AI tối đa hóa hiệu số điểm cuối trận, đồng thời tránh tự mở chuỗi cho đối thủ khi vẫn còn nước an toàn.
+AI được thiết kế để chơi Dots and Boxes trên nhiều kích thước bàn, từ 3x3, 4x4 đến các bàn lớn hơn như 6x6, 7x7, 8x8. Mục tiêu trực tiếp là chọn một nước đi hợp lệ giúp AI tối đa hóa hiệu số điểm cuối trận.
 
-Logic hiện tại kết hợp các nhóm kỹ thuật chính:
+Tuy nhiên, Dots and Boxes không thể chơi tốt nếu chỉ nhìn điểm trước mắt. Ở cuối ván, người chơi mạnh phải biết giữ quyền kiểm soát chuỗi. Vì vậy AI hiện tại theo đuổi ba mục tiêu chiến thuật:
 
-- Minimax kết hợp cắt tỉa Alpha-Beta.
-- Candidate pruning: lọc nước đi theo từng pha game trước khi đưa vào minimax.
-- Chain theory: nhận diện chain, loop, double-cross và parity ở cuối game.
-- Time management: iterative deepening kết hợp deadline nội bộ để tránh làm đơ giao diện.
+- Không tự tạo ô 3 cạnh cho đối thủ nếu vẫn còn nước an toàn.
+- Khi buộc phải mở chuỗi, chọn nước mở ít thiệt hại nhất.
+- Khi đang ăn chuỗi, biết lúc nào nên ăn hết và lúc nào nên hy sinh 2 hoặc 4 ô cuối để ép đối thủ mở chuỗi tiếp theo.
+
+Các kỹ thuật chính đang được dùng:
+
+- Minimax kết hợp Alpha-Beta pruning.
+- Iterative Deepening với giới hạn thời gian mặc định `4.0` giây.
+- Transposition Table để cache trạng thái đã tính.
+- Candidate pruning để giảm số nhánh trên bàn lớn.
+- Chain theory, parity và hard-hearted handout trong endgame.
+- Forcing-move ordering để so sánh trực tiếp giữa greedy capture và sacrifice.
 
 Toàn bộ logic AI nằm trong `ai.py`. UI chỉ gọi API công khai `get_best_move()`.
 
@@ -17,122 +27,203 @@ Toàn bộ logic AI nằm trong `ai.py`. UI chỉ gọi API công khai `get_best
 
 AI làm việc trên đối tượng `GameState`, gồm các trường quan trọng:
 
-- `h_edges`: ma trận các cạnh ngang.
-- `v_edges`: ma trận các cạnh dọc.
-- `boxes`: ma trận chủ sở hữu từng ô. Giá trị `0` là chưa ai ăn, `1` và `2` là người chơi.
-- `edges_count`: số cạnh đã vẽ quanh mỗi ô.
-- `current_player`: người đang có lượt.
-- `score_player1`, `score_player2`: điểm hiện tại.
-- `moves_remaining`: số cạnh còn lại.
+| Trường | Ý nghĩa |
+|---|---|
+| `rows`, `cols` | Kích thước bàn cờ theo số ô |
+| `h_edges` | Ma trận cạnh ngang đã vẽ |
+| `v_edges` | Ma trận cạnh dọc đã vẽ |
+| `boxes` | Chủ sở hữu từng ô, `0` là chưa ai ăn |
+| `edges_count` | Số cạnh đã vẽ quanh mỗi ô |
+| `current_player` | Người đang có lượt |
+| `score_player1`, `score_player2` | Điểm hiện tại |
+| `moves_remaining` | Số cạnh còn lại |
 
-Hai hàm `apply_move()` và `undo_move()` trong `rules.py` là nền tảng của minimax. AI thử một nước đi bằng `apply_move()`, đi sâu xuống nhánh con, sau đó gọi `undo_move()` để trả board về trạng thái ban đầu.
+Hai hàm quan trọng trong `rules.py` là:
+
+- `apply_move(state, move)`: thử một nước đi, cập nhật cạnh, điểm, lượt chơi và trả về `undo_info`.
+- `undo_move(state, move, undo_info)`: hoàn tác chính xác nước vừa thử.
+
+Minimax dùng cặp hàm này liên tục. AI không copy state ở mỗi node, mà apply rồi undo để tiết kiệm thời gian và bộ nhớ.
 
 ## 3. Phân loại nước đi
 
-AI không xem mọi cạnh hợp lệ là như nhau. Mỗi nước đi được phân loại theo ảnh hưởng của nó lên các ô xung quanh.
+AI không xem mọi cạnh hợp lệ là ngang nhau. Mỗi nước đi được phân loại theo tác động lên các ô xung quanh.
 
 ### 3.1. Capture move
 
-Capture move là nước đi hoàn thành một hoặc nhiều ô. Hàm `would_complete_box(state, move)` trả về số ô sẽ được ăn nếu đi nước này.
+Capture move là nước đi hoàn thành ít nhất một ô. Hàm kiểm tra:
 
-Capture move rất quan trọng vì người đi:
+```python
+would_complete_box(state, move)
+```
 
-- Được cộng điểm.
-- Được giữ lượt.
-- Có thể kích hoạt chuỗi ăn liên tiếp.
+Nếu kết quả lớn hơn `0`, nước đi đó ăn được ô. Người ăn ô sẽ được cộng điểm và giữ lượt, nên capture move thường tạo ra các chuỗi ăn liên tiếp.
 
 ### 3.2. Safe move
 
-Safe move là nước đi không tạo bất kỳ ô nào có đúng 3 cạnh cho đối thủ. Hàm `would_create_third_edge(state, move)` trả về số ô sẽ bị đẩy lên 3 cạnh.
+Safe move là nước đi không tạo ô 3 cạnh cho đối thủ. Hàm kiểm tra:
 
-Nếu còn safe move, AI ưu tiên chỉ search trên safe move. Đây là điểm quan trọng giúp AI mạnh hơn trên bàn lớn: không tự mở cơ hội ăn điểm cho đối thủ khi vẫn còn đường an toàn.
+```python
+would_create_third_edge(state, move)
+```
+
+Nếu kết quả bằng `0`, nước đi được xem là an toàn. Khi không có forcing move, AI ưu tiên chỉ xét safe move. Đây là lớp phòng thủ quan trọng giúp AI không mở điểm miễn phí cho đối thủ.
 
 ### 3.3. Risky move
 
-Risky move là nước đi tạo ra ít nhất một ô 3 cạnh. Nếu đối thủ chơi tốt, họ có thể ăn ô đó và tiếp tục ăn theo chuỗi.
+Risky move là nước tạo ra ít nhất một ô 3 cạnh. Nếu đối thủ chơi tốt, họ có thể ăn ô đó và tiếp tục ăn theo chuỗi.
 
-Risky move chỉ được xét khi không còn safe move. Khi buộc phải mở chuỗi, AI sắp xếp risky move theo mức thiệt hại ước lượng bằng `_estimate_opened_chain_loss()`.
+Risky move chỉ được xét khi không còn safe move. Khi phải mở chuỗi, AI sắp xếp risky move theo mức thiệt hại ước lượng bằng `_estimate_opened_chain_loss()`.
+
+### 3.4. Sacrifice / Hard-hearted handout
+
+Sacrifice là nước không ăn ô ngay, nhưng cố ý để lại một phần nhỏ của chuỗi cho đối thủ:
+
+- Open chain: thường nhường 2 ô cuối.
+- Loop hoặc cấu trúc đóng: thường nhường 4 ô cuối.
+
+Mục đích không phải là tặng điểm vô cớ. Mục đích là để đối thủ ăn phần nhỏ đó xong phải mở chuỗi tiếp theo, còn AI giữ quyền kiểm soát endgame.
 
 ## 4. Candidate pruning theo pha game
 
 Hàm `_order_moves(state, moves, tt_best_key=None)` vừa sắp xếp nước đi, vừa lọc bớt số nhánh search.
 
-Thứ tự xử lý:
+Thứ tự xử lý hiện tại:
 
-1. Nếu có capture move, ưu tiên nhóm capture move.
-2. Nếu không có capture move nhưng còn safe move, chỉ giữ safe move.
+1. Nếu có capture move, ưu tiên nhóm capture.
+2. Nếu không có capture nhưng còn safe move, chỉ giữ safe move.
 3. Nếu không còn safe move, mới xét risky move.
-4. Danh sách cuối cùng được giới hạn bởi `_candidate_limit()` để bàn 6x6, 7x7 không bị nổ nhánh.
+4. Danh sách cuối cùng được giới hạn bởi `_candidate_limit()`.
 
-`_candidate_limit()` đặt giới hạn theo số ô:
+Giới hạn candidate hiện tại:
 
 | Điều kiện | Số candidate tối đa |
 |---|---:|
-| `rows * cols <= 16` | 28 |
-| `rows * cols <= 36` | 18 |
-| Lớn hơn | 14 |
+| `rows * cols <= 16` | 32 |
+| `rows * cols <= 36` | 24 |
+| Lớn hơn | 18 |
 
-Lý do cần giới hạn là bàn lớn có rất nhiều cạnh hợp lệ. Nếu đưa tất cả vào minimax, branching factor quá lớn và AI sẽ không kịp trả lời trong thời gian cho phép.
+Lý do cần pruning: bàn lớn có rất nhiều cạnh hợp lệ. Nếu đưa tất cả vào minimax, AI sẽ không kịp trả nước trong 4 giây.
 
-## 5. Cách chấm điểm safe move và risky move
+## 5. Chấm điểm safe move và risky move
 
-### 5.1. `_safe_move_score()`
+### 5.1. Safe move score
 
-Safe move được chấm điểm theo các tiêu chí:
+Safe move được chấm bằng `_safe_move_score()`. Hàm này bắt đầu bằng `_safe_pressure_score()`, sau đó cộng thêm các tiêu chí phụ.
 
-- Hạn chế tạo thêm ô có 2 cạnh, vì ô 2 cạnh dễ trở thành vật liệu tạo chain.
-- Ưu tiên nước tác động ít ô hơn khi cần giữ thế trận ổn định.
-- Dùng khoảng cách tới trung tâm làm tiêu chí phụ để thứ tự ổn định.
-- Dùng `_move_key()` để kết quả sắp xếp có tính deterministic.
+Ý tưởng của `_safe_pressure_score()`:
 
-### 5.2. `_risky_move_score()`
+- Thử đi safe move.
+- Đếm số safe move đối thủ còn lại.
+- Nếu đối thủ hết safe move và không có forcing move, ước lượng thiệt hại đối thủ buộc phải mở chuỗi.
+- Xem lợi thế chain sau nước đi.
 
-Risky move được chấm điểm theo:
+Vì tuple score được sort tăng dần, AI ưu tiên safe move làm đối thủ còn ít safe reply hơn. Đây là cách AI "dồn" đối thủ tới thời điểm phải mở chuỗi.
 
-- `_estimate_opened_chain_loss()`: sau khi thử đi nước này, ước lượng chuỗi lớn nhất mà đối thủ có thể bắt đầu ăn.
+Các tiêu chí phụ trong `_safe_move_score()`:
+
+- Hạn chế tạo thêm ô 2 cạnh.
+- Ưu tiên nước tác động ít ô hơn khi cần giữ thế ổn định.
+- Ưu tiên nước chạm ô trống khi có lợi.
+- Dùng khoảng cách tới trung tâm và `_move_key()` để thứ tự ổn định.
+
+### 5.2. Risky move score
+
+Risky move được chấm bằng `_risky_move_score()`.
+
+Các tiêu chí chính:
+
+- `_estimate_opened_chain_loss()`: nếu đi nước này, chuỗi lớn nhất đối thủ có thể bắt đầu ăn là bao nhiêu.
+- `_post_move_chain_advantage()`: lợi thế chain sau nước đi.
 - Số ô bị tạo thành 3 cạnh.
-- Điểm phụ từ `_safe_move_score()`.
+- Khoảng cách tới trung tâm và `_move_key()`.
 
-Mục tiêu là nếu bắt buộc phải mở chuỗi, AI sẽ mở chuỗi ít thiệt hại nhất.
+Mục tiêu: nếu buộc phải mở chuỗi, AI chọn nước mở ít thiệt hại nhất.
 
-## 6. Forcing moves và double-cross
+## 6. Forcing moves
 
-Hàm `get_forcing_moves(state)` sinh các nước đi ép buộc khi có ô đang có 3 cạnh.
+Forcing move là nhóm nước đi cần xử lý ưu tiên khi có ô 3 cạnh hoặc có chuỗi đang mở.
 
-Các loại nước có thể xuất hiện:
+Hàm chính:
 
-- Nước ăn ô ngay: lấy cạnh còn thiếu của ô 3 cạnh bằng `_get_missing_edge()`.
-- Nước sacrifice/double-cross trong một số tình huống chain tới hạn.
+```python
+get_forcing_moves(state)
+```
 
 Quy trình:
 
-1. `_find_capturable_chains()` tìm các chain có thể ăn liên tiếp.
-2. Với mỗi chain, AI thêm nước ăn ô đầu chain.
-3. Nếu chain đang ở điểm có thể double-cross, AI thêm nước sacrifice.
-4. Fallback: quét toàn board, nếu còn ô 3 cạnh nào chưa được thêm thì thêm nước ăn ô đó.
+1. Gọi `_find_capturable_chains()` để tìm các chuỗi có thể ăn liên tiếp.
+2. Với mỗi chain, thêm nước ăn ô đầu chain bằng `_get_missing_edge()`.
+3. Gọi `_get_sacrifice_moves()` để thêm các nước handout hợp lệ.
+4. Fallback: quét toàn board, nếu còn ô 3 cạnh chưa được thêm thì thêm nước ăn ô đó.
 
-Điểm cần lưu ý: AI hiện tại không return ngay khi chỉ có một forcing move ở top-level. Forcing move vẫn được đưa vào minimax, vì sau nước ăn đó có thể còn chuỗi hoặc vấn đề tempo cần được đánh giá tiếp.
+Điểm quan trọng: forcing move không chỉ là "ăn ngay". Nó gồm cả greedy capture và sacrifice. Sau khi sinh ra, các nước này được sắp xếp bằng `_order_forcing_moves()` để AI chọn đúng giữa ăn hết và hy sinh.
 
-## 7. Phân tích chain và loop
+## 7. Logic sacrifice hiện tại
 
-### 7.1. `_find_capturable_chains()`
+Đây là phần quan trọng nhất của phiên bản AI hiện tại.
 
-Hàm này dùng cho tình huống đã có ô 3 cạnh. Nó tìm các chuỗi có thể ăn liên tiếp sau khi vẽ cạnh còn thiếu.
+### 7.1. Vấn đề cũ
+
+Nếu chỉ sinh nước sacrifice mà không chấm đúng, AI vẫn có thể chọn greedy capture vì điểm tức thời cao hơn. Khi đó AI ăn hết chuỗi, vẫn giữ lượt, hết safe move và bị buộc phải tự mở chuỗi tiếp theo cho đối thủ.
+
+### 7.2. Cách sinh sacrifice mới
+
+Hàm `_get_sacrifice_moves(state, chain)` không còn dựa cứng vào vài pattern hình học như "chain đúng 2 ô" hoặc "loop đúng 4 ô". Thay vào đó, nó kiểm tra theo component:
+
+1. `_handout_size_for_component()` xác định cần nhường 2 ô hay 4 ô.
+2. Duyệt các legal move.
+3. Loại move ăn điểm ngay, vì sacrifice đúng nghĩa không ăn ô ngay tại nước đó.
+4. `_component_touched_by_move()` kiểm tra move có chạm component đang xét không.
+5. `_capturable_boxes_after_move()` thử move và xem phần còn lại có trở thành capturable cho đối thủ không.
+6. Chỉ nhận move nếu số ô capturable sau đó đúng bằng handout size.
+
+Nói ngắn gọn: AI không hỏi "hình này có giống mẫu cũ không", mà hỏi "sau nước này có thật sự để lại đúng phần handout cho đối thủ không".
+
+### 7.3. Cách chọn giữa greedy và sacrifice
+
+Các forcing move được chấm bằng `_resolved_forcing_score()`.
+
+Quy trình chấm:
+
+1. Kiểm tra move có phải sacrifice bằng `_is_sacrifice_move()`.
+2. Apply move đang xét.
+3. Gọi `_play_greedy_forced_captures()` để mô phỏng các capture bắt buộc tiếp theo.
+4. Chấm trạng thái bằng `evaluate()`.
+5. Cộng thêm `_control_after_forced_resolution()` để xem sau khi chuỗi được resolve, ai đang bị buộc mở chuỗi.
+6. Nếu move là handout và sau đó đối thủ phải đi, cộng thêm bonus kiểm soát.
+7. Undo toàn bộ mô phỏng.
+
+Ý nghĩa chiến thuật:
+
+- Nếu greedy capture làm AI phải tự mở chuỗi kế tiếp, move đó bị phạt.
+- Nếu sacrifice làm đối thủ ăn phần nhỏ rồi phải mở chuỗi kế tiếp, move đó được thưởng.
+- Nếu đó là chuỗi cuối cùng, AI không hy sinh vô ích mà có xu hướng ăn hết.
+
+## 8. Phân tích chain và loop
+
+AI có hai lớp phân tích chuỗi.
+
+### 8.1. `_find_capturable_chains()`
+
+Hàm này dùng khi đã có ô 3 cạnh. Nó tìm các chuỗi đang có thể ăn liên tiếp.
 
 Điều kiện lan chuỗi:
 
 - Ô kế bên chưa bị ăn.
-- Chia sẻ một cạnh chưa vẽ với ô hiện tại.
-- `edges_count >= 2`, vì những ô này có khả năng thành ô 3 cạnh sau khi ăn ô trước.
+- Chia sẻ cạnh chưa vẽ với ô hiện tại.
+- `edges_count >= 2`, vì ô đó có thể thành 3 cạnh sau khi ô trước bị ăn.
 
-### 7.2. `_analyze_chains_and_loops()`
+Hàm này phục vụ `get_forcing_moves()`.
 
-Hàm này dùng trong heuristic endgame. Nó phân tích các component gồm những ô chưa bị ăn, có `edges_count >= 2`, và nối nhau qua cạnh chưa vẽ.
+### 8.2. `_analyze_chains_and_loops()`
 
-Sau khi tìm component, AI đếm số neighbor của mỗi ô trong component:
+Hàm này dùng cho heuristic endgame. Nó phân tích toàn board thành các component gồm ô chưa bị ăn, có `edges_count >= 2`, nối nhau qua cạnh chưa vẽ.
 
-- Nếu mọi ô có đúng 2 neighbor và độ dài component >= 4, đó là closed loop.
-- Nếu không phải loop và độ dài component >= 3, đó là open chain.
+Sau khi có component:
+
+- Nếu mọi ô trong component có đúng 2 neighbor và độ dài >= 4, đó là closed loop.
+- Nếu không phải loop và độ dài >= 3, đó là open chain.
 
 Kết quả trả về:
 
@@ -142,21 +233,21 @@ Kết quả trả về:
 
 Trong đó mỗi phần tử là độ dài của chain hoặc loop.
 
-## 8. Đánh giá chain control bằng `_evaluate_chains()`
+## 9. Đánh giá chain control bằng `_evaluate_chains()`
 
-Endgame của Dots and Boxes thường được quyết định bởi ai nắm quyền control các chain. Hàm `_evaluate_chains()` ước lượng lợi thế đó.
+Endgame của Dots and Boxes thường được quyết định bởi quyền kiểm soát chuỗi. Hàm `_evaluate_chains()` ước lượng lợi thế đó.
 
 AI chuyển các cấu trúc thành region:
 
 - Open chain: chi phí sacrifice là 2 ô.
 - Closed loop: chi phí sacrifice là 4 ô.
 
-Các region được sắp xếp theo `len - sac`. Region có lợi ít hơn được xử lý trước, region tốt nhất được để cuối.
+Các region được sắp xếp theo `len - sac`, tức lợi ích ròng khi controller giữ quyền điều khiển.
 
 Mô phỏng điểm:
 
 - Ở các region đầu, controller ăn `len - sac`, victim nhận `sac`.
-- Ở region cuối cùng, controller ăn trọn `len`, không cần sacrifice nữa.
+- Ở region cuối cùng, controller ăn trọn `len`, không cần sacrifice.
 
 Sau đó AI tính:
 
@@ -168,14 +259,14 @@ rồi đổi dấu về góc nhìn của `ai_player`.
 
 Quy tắc parity trong code:
 
-- Nếu số region là chẵn, người đang có lượt được xem là có cơ hội nắm control.
-- Nếu số region là lẻ, control nghiêng về người còn lại.
+- Nếu tổng số region là chẵn, người đang có lượt được xem là có cơ hội nắm control.
+- Nếu tổng số region là lẻ, control nghiêng về người còn lại.
 
-Giá trị trả về của `_evaluate_chains()` được nhân thêm để có trọng số đủ lớn trong endgame.
+Đây là heuristic, không phải solver toán học đầy đủ, nhưng giúp AI xử lý endgame tốt hơn nhiều so với chỉ nhìn điểm hiện tại.
 
-## 9. Hàm heuristic `evaluate()`
+## 10. Hàm heuristic `evaluate()`
 
-Khi minimax chạm `depth <= 0` và không còn forcing move, AI dùng `evaluate()`.
+Khi minimax chạm giới hạn độ sâu và không còn forcing move, AI dùng `evaluate()`.
 
 Công thức tổng quát:
 
@@ -193,7 +284,7 @@ score = score_diff * 100
 |---|---|
 | `score_diff * 100` | Ưu tiên điểm thật của AI so với đối thủ |
 | `cap_score` | Thưởng/phạt cơ hội ăn ô 3 cạnh theo lượt hiện tại |
-| `chain_score * chain_weight` | Đánh giá quyền control chain/loop |
+| `chain_score * chain_weight` | Đánh giá quyền kiểm soát chain/loop |
 | `mobility_score` | Đánh giá bên nào còn safe move hoặc bị buộc mở chuỗi |
 | `- boxes_2 * 3` | Phạt nhẹ việc có nhiều ô 2 cạnh trên board |
 
@@ -201,41 +292,38 @@ score = score_diff * 100
 
 | Điều kiện | `chain_weight` | Ý nghĩa |
 |---|---:|---|
-| `boxes_safe > 2` | 1 | Midgame, ưu tiên điểm và safe move |
+| `boxes_safe > 2` | 1 | Midgame, chain theory chỉ là tín hiệu phụ |
 | `boxes_safe > 0` | 5 | Cận endgame, bắt đầu coi trọng parity |
 | `boxes_safe == 0` | 15 | Endgame, chain control là yếu tố chính |
 
-### 9.1. Mobility score và forced opener
+## 11. Minimax và Alpha-Beta
 
-Nếu không có ô nào đang ăn được (`capturable == 0`), AI đếm số safe move.
+Hàm chính:
 
-- Nếu còn safe move: bên đang đi được cộng một điểm nhỏ vì vẫn còn không gian điều khiển.
-- Nếu không còn safe move: bên đang đi bị buộc mở chuỗi. AI ước lượng chuỗi thiệt hại nhỏ nhất và phạt bên đang đi.
+```python
+minimax(state, depth, alpha, beta, ai_player)
+```
 
-Đây là heuristic quan trọng khi đánh với bot mạnh: không chỉ xem ai đang hơn điểm, mà còn xem ai sắp bị buộc phải mở quà cho đối thủ.
+Các bước:
 
-## 10. Minimax và Alpha-Beta
-
-Hàm `minimax(state, depth, alpha, beta, ai_player)` là hàm tìm kiếm đệ quy.
-
-Các bước chính:
-
-1. Kiểm tra deadline bằng `_time_up()`. Nếu hết giờ, trả về heuristic và đánh dấu `_search_timed_out`.
-2. Nếu game kết thúc, trả về hiệu số điểm nhân 10000.
-3. Lấy forcing moves bằng `get_forcing_moves()`.
+1. Kiểm tra deadline bằng `_time_up()`.
+2. Nếu game kết thúc, trả về hiệu số điểm nhân `10000`.
+3. Sinh forcing moves bằng `get_forcing_moves()`.
 4. Nếu `depth <= 0` và không có forcing move, dùng `evaluate()`.
-5. Tra cứu transposition table.
-6. Xác định node max/min theo `state.current_player == ai_player`.
-7. Nếu có forcing move, chỉ search forcing move.
-8. Nếu không, lấy legal moves và lọc/sắp xếp bằng `_order_moves()`.
+5. Tra cứu Transposition Table.
+6. Xác định node max/min bằng `state.current_player == ai_player`.
+7. Nếu có forcing move, sắp xếp bằng `_order_forcing_moves()`.
+8. Nếu không có forcing move, lấy legal moves rồi sắp bằng `_order_moves()`.
 9. Thử từng move bằng `apply_move()`.
-10. Nếu move ăn được ô, `current_player` không đổi, vì vậy depth không giảm. Nếu đổi lượt, depth giảm 1.
-11. Gọi đệ quy `minimax()`.
-12. Undo move bằng `undo_move()`.
-13. Cập nhật `alpha`, `beta`, cắt nhánh khi `alpha >= beta`.
-14. Lưu kết quả vào transposition table nếu không bị timeout.
+10. Nếu người vừa đi ăn ô và được giữ lượt, depth không giảm; nếu đổi lượt, depth giảm 1.
+11. Gọi đệ quy minimax.
+12. Hoàn tác bằng `undo_move()`.
+13. Cập nhật alpha/beta và cắt nhánh khi `alpha >= beta`.
+14. Lưu kết quả vào Transposition Table nếu không timeout.
 
-## 11. Transposition Table
+Điểm đặc biệt của Dots and Boxes: không thể dùng độ sâu chẵn/lẻ để xác định MAX/MIN, vì người chơi có thể được đi tiếp sau khi ăn ô.
+
+## 12. Transposition Table
 
 `_tt` là dictionary cache kết quả search.
 
@@ -245,7 +333,7 @@ Key được tạo bởi `_state_key()`:
 (h_edges, v_edges, boxes, current_player, score_player1, score_player2)
 ```
 
-Việc thêm `boxes` và điểm số vào key là quan trọng, vì trong Dots and Boxes cùng một tập cạnh có thể gắn với điểm hoặc owner khác nhau tùy thứ tự ăn ô.
+Việc đưa `boxes` và điểm số vào key là cần thiết, vì cùng một tập cạnh có thể dẫn tới điểm hoặc chủ sở hữu ô khác nhau tùy thứ tự ăn ô.
 
 Mỗi entry lưu:
 
@@ -253,7 +341,7 @@ Mỗi entry lưu:
 (depth, score, flag, best_move_key)
 ```
 
-`flag` có 3 loại:
+`flag` có ba loại:
 
 | Flag | Ý nghĩa |
 |---|---|
@@ -261,28 +349,32 @@ Mỗi entry lưu:
 | `LOWERBOUND` | Điểm thực tế >= score |
 | `UPPERBOUND` | Điểm thực tế <= score |
 
-## 12. Iterative deepening và deadline
+## 13. Iterative Deepening và deadline
 
-`get_best_move()` không search thẳng một depth lớn. Thay vào đó, nó chạy từ depth 1 đến `max_depth`.
+`get_best_move()` không search thẳng một depth lớn. Nó chạy từ depth 1 đến `max_depth`.
 
-Sau mỗi depth:
+Mặc định:
 
-- Nếu tìm được move tốt hơn, cập nhật `best_move`.
-- Nếu điểm rất lớn (`abs(score) >= 9000`), xem như thấy kết quả chắc chắn và dừng.
-- Nếu ước lượng vòng sau vượt `time_limit`, dừng.
-- Nếu minimax chạm deadline nội bộ, dừng và trả về best move của depth trước.
+```python
+time_limit = 4.0
+```
 
-Deadline nội bộ dùng các biến:
+Deadline nội bộ dùng:
 
 - `_search_deadline`
 - `_search_timed_out`
 - `_time_up()`
 
-Nhờ đó AI không chỉ kiểm tra thời gian giữa các iteration, mà còn có thể thoát trong lúc đang đệ quy.
+Sau mỗi vòng depth:
 
-## 13. Adaptive depth theo kích thước và giai đoạn
+- Nếu tìm được move mới, cập nhật `best_move`.
+- Nếu score rất lớn (`abs(score) >= 9000`), dừng sớm.
+- Nếu ước lượng vòng sau vượt `time_limit`, dừng.
+- Nếu minimax timeout bên trong, bỏ vòng chưa hoàn tất và trả best move của vòng trước.
 
-Nếu user không truyền `base_depth`, AI tự chọn theo số ô:
+## 14. Adaptive depth
+
+Nếu không truyền `base_depth`, AI chọn theo số ô:
 
 | Số ô | Base depth |
 |---:|---:|
@@ -292,7 +384,7 @@ Nếu user không truyền `base_depth`, AI tự chọn theo số ô:
 | `<= 36` | 4 |
 | Lớn hơn | 3 |
 
-Sau đó `_get_adaptive_depth()` tăng depth khi số move còn lại ít:
+Sau đó `_get_adaptive_depth()` tăng depth khi game gần kết thúc:
 
 | `moves_remaining` | Depth tối đa |
 |---:|---:|
@@ -302,27 +394,18 @@ Sau đó `_get_adaptive_depth()` tăng depth khi số move còn lại ít:
 | `<= 30` | `base_depth + 1` |
 | Lớn hơn | `base_depth` |
 
-Ý tưởng: đầu game và bàn lớn cần pruning mạnh; cuối game còn ít move hơn nên có thể search sâu.
+Ý tưởng: đầu game cần pruning mạnh; cuối game còn ít cạnh hơn nên có thể search sâu hơn.
 
-## 14. Điểm mạnh và giới hạn
+## 15. Tóm tắt để thuyết trình
 
-Điểm mạnh:
+Có thể trình bày AI theo 5 tầng:
 
-- Tránh mở ô 3 cạnh khi vẫn còn safe move.
-- Biết ước lượng thiệt hại khi buộc phải mở chuỗi.
-- Có phân tích chain/loop và parity cho endgame.
-- Có deadline nội bộ để tránh treo UI.
-- Chạy được trên bàn 4x4, 6x6, 7x7 nhờ candidate pruning.
+1. **Luật chơi và state**: dùng `GameState`, `apply_move()`, `undo_move()`.
+2. **Lọc nước đi**: ưu tiên capture, safe move, chỉ mở risky khi bắt buộc.
+3. **Tìm kiếm**: minimax + alpha-beta + transposition table.
+4. **Endgame**: phân tích chain, loop, parity.
+5. **Sacrifice control**: so sánh greedy capture với hard-hearted handout bằng `_resolved_forcing_score()`.
 
-Giới hạn:
+Thông điệp chính:
 
-- Chưa phải solver tuyệt đối cho mọi kích thước board.
-- Phân tích Nimstring mới ở mức heuristic, chưa tính đầy đủ Sprague-Grundy hoặc nimber.
-- Double-cross hiện được sinh ở một số điểm tới hạn, chưa bao phủ toàn bộ chiến thuật endgame nâng cao.
-- Kết quả phụ thuộc vào `time_limit` và độ sâu search thực tế.
-
-## 15. Tóm tắt ngắn gọn
-
-AI hiện tại có thể hiểu theo một câu:
-
-> Nếu có ô ăn được thì xét các nước ép buộc; nếu không có thì chỉ chơi safe move; nếu hết safe move thì mở chuỗi ít thiệt hại nhất; tất cả được đánh giá bằng minimax, chain heuristic, transposition table và deadline thời gian.
+> AI không chỉ tìm nước ăn điểm ngay. AI cố giữ quyền kiểm soát chuỗi: tránh mở chuỗi khi còn safe move, ép đối thủ hết safe move, và hy sinh 2/4 ô cuối khi điều đó buộc đối thủ phải mở chuỗi tiếp theo.
