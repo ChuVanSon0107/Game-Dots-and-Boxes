@@ -98,8 +98,12 @@ def _best_forced_opener_loss(state: GameState):
 
 
 def _safe_pressure_score(state: GameState, move: Move):
-    """Prefer safe moves that leave the opponent close to opening a chain."""
-    mover = state.current_player
+    """Prefer safe moves that leave the opponent close to opening a chain.
+
+    Chỉ dùng opponent_safe_moves và forced_opener_loss để sắp xếp.
+    Không gọi _evaluate_chains ở đây vì chi phí quá cao (O(N × board) cho mỗi
+    nước đi ứng viên), và _evaluate_chains đã được tính trong evaluate().
+    """
     undo_info = apply_move(state, move)
 
     opponent_safe_moves = _count_safe_moves(state)
@@ -107,13 +111,11 @@ def _safe_pressure_score(state: GameState, move: Move):
     if opponent_safe_moves == 0 and not get_forcing_moves(state):
         forced_opener_loss = _best_forced_opener_loss(state)
 
-    chain_advantage = _evaluate_chains(state, mover)
     undo_move(state, move, undo_info)
 
     return (
         opponent_safe_moves,
         -forced_opener_loss,
-        -chain_advantage,
     )
 
 def _candidate_limit(state: GameState):
@@ -228,6 +230,11 @@ def _terminal_score(state: GameState, ai_player: int):
 
 
 def _control_after_forced_resolution(state: GameState, ai_player: int):
+    """Đánh giá thế trận sau khi giải quyết các forced captures.
+
+    Dùng _evaluate_chains (đã tích hợp safe-moves parity) thay vì
+    turn_bias dựa trên region_count (logic cũ không có cơ sở).
+    """
     if is_terminal(state):
         return _terminal_score(state, ai_player)
 
@@ -238,16 +245,9 @@ def _control_after_forced_resolution(state: GameState, ai_player: int):
             pressure = opener_loss * 180
             return pressure if state.current_player != ai_player else -pressure
 
-    open_chains, closed_loops = _analyze_chains_and_loops(state)
-    region_count = len(open_chains) + len(closed_loops)
-    if region_count == 0:
-        return 0
-
-    control_bias = _evaluate_chains(state, ai_player) * 8
-    turn_bias = 45 * region_count
-    if state.current_player == ai_player:
-        return control_bias - turn_bias
-    return control_bias + turn_bias
+    # _evaluate_chains đã tính đúng controller dựa trên safe_moves parity,
+    # không cần turn_bias riêng dựa trên region_count nữa.
+    return _evaluate_chains(state, ai_player, safe_count=safe_moves) * 8
 
 
 def _resolved_forcing_score(state: GameState, move: Move, ai_player: int):
@@ -530,7 +530,6 @@ def evaluate(state: GameState, ai_player: int):
         score_diff = state.score_player2 - state.score_player1
 
     capturable = 0
-    boxes_2 = 0
     boxes_safe = 0
 
     for r in range(state.rows):
@@ -539,9 +538,7 @@ def evaluate(state: GameState, ai_player: int):
                 ec = state.edges_count[r][c]
                 if ec == 3:
                     capturable += 1
-                elif ec == 2:
-                    boxes_2 += 1
-                else:
+                elif ec <= 1:
                     boxes_safe += 1
 
     if state.current_player == ai_player:
@@ -549,7 +546,10 @@ def evaluate(state: GameState, ai_player: int):
     else:
         cap_score = -capturable * 50
 
-    chain_score = _evaluate_chains(state, ai_player)
+    # Tính safe_count một lần, truyền vào _evaluate_chains để tránh tính lại
+    safe_count = _count_safe_moves(state) if capturable == 0 else 0
+
+    chain_score = _evaluate_chains(state, ai_player, safe_count=safe_count)
 
     # Tự động điều chỉnh trọng số Nimstring dựa trên giai đoạn game
     if boxes_safe > 2:
@@ -559,26 +559,19 @@ def evaluate(state: GameState, ai_player: int):
     else:
         chain_weight = 15  # Endgame thực sự: Áp dụng mạnh mẽ Chain Theory
 
+    # Phạt nặng khi bị ép mở chuỗi (hết nước đi an toàn).
+    # Không cần mobility bonus nhẹ (safe_count * 2) vì _evaluate_chains
+    # đã xử lý parity dựa trên safe_count rồi.
     mobility_score = 0
-    if capturable == 0:
-        legal_moves = get_legal_moves(state)
-        safe_count = 0
+    if capturable == 0 and safe_count == 0:
         best_opener_loss = math.inf
-        for move in legal_moves:
-            if would_create_third_edge(state, move) == 0:
-                safe_count += 1
-            else:
-                best_opener_loss = min(best_opener_loss, _estimate_opened_chain_loss(state, move))
-
-        if safe_count > 0:
-            mobility_score = safe_count * (2 if state.current_player == ai_player else -2)
-        elif legal_moves and best_opener_loss < math.inf:
-            # No safe moves means the side to move must open a chain. That is
-            # usually good for the other side, especially on large boards.
+        for move in get_legal_moves(state):
+            best_opener_loss = min(best_opener_loss, _estimate_opened_chain_loss(state, move))
+        if best_opener_loss < math.inf:
             swing = best_opener_loss * 60
             mobility_score = -swing if state.current_player == ai_player else swing
 
-    return score_diff * 100 + cap_score + chain_score * chain_weight + mobility_score - boxes_2 * 3
+    return score_diff * 100 + cap_score + chain_score * chain_weight + mobility_score
 
 
 def _analyze_chains_and_loops(state: GameState):
@@ -659,7 +652,7 @@ def _analyze_chains_and_loops(state: GameState):
     return open_chains, closed_loops
 
 
-def _evaluate_chains(state: GameState, ai_player: int):
+def _evaluate_chains(state: GameState, ai_player: int, safe_count: int = None):
     """
     Đánh giá chain/loop control dựa trên Nimstring theory chuẩn xác.
     Tính toán chính xác số điểm (net score) dự kiến mà mỗi bên sẽ nhận được
@@ -682,10 +675,19 @@ def _evaluate_chains(state: GameState, ai_player: int):
 
     total_regions = len(regions)
 
-    # Quy tắc Parity:
-    # Khi số lượng region CHẴN, người đang có lượt (current_player) sẽ có cơ hội
-    # bám sát nước đi của đối thủ (mirror) và giành quyền điều khiển (controller).
-    current_player_controls = (total_regions % 2 == 0)
+    # Quy tắc Parity (dựa trên Safe Moves):
+    # Controller là người KHÔNG bị hết nước đi an toàn trước.
+    # Với chiến thuật Double-Cross, Victim luôn là Victim xuyên suốt
+    # (sau mỗi chuỗi, lượt quay lại Victim vì họ nhận sacrifice và phải mở tiếp).
+    # Do đó, số lượng chuỗi KHÔNG quyết định ai là Controller.
+    # Chỉ có tính chẵn/lẻ của nước đi an toàn mới quyết định:
+    #   - safe_moves LẺ → current_player đi nước an toàn cuối cùng → đối thủ phải mở chuỗi
+    #     → current_player là Controller ✓
+    #   - safe_moves CHẴN (kể cả 0) → current_player hết trước → phải mở chuỗi
+    #     → current_player là Victim ✗
+    if safe_count is None:
+        safe_count = _count_safe_moves(state)
+    current_player_controls = (safe_count % 2 == 1)
 
     controller_points = 0
     victim_points = 0
